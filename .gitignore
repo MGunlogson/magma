@@ -1,0 +1,7 @@
+.orcaslicer-config/
+.orcaslicer-cache/
+build/
+*.gcode
+*.3mf
+*.ini
+.DS_Store
