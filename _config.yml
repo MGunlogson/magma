@@ -1,0 +1,11 @@
+title: MAGMA
+description: Vertical reinforcement infill for FDM 3D printing
+theme: jekyll-theme-primer
+
+# Disable Liquid processing on all content files so C++ snippets with `{{`
+# and curly-brace aggregate init don't get parsed as Liquid templates.
+defaults:
+  - scope:
+      path: ""
+    values:
+      render_with_liquid: false
