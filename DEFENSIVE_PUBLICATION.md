@@ -1,3 +1,7 @@
+---
+render_with_liquid: false
+---
+
 # Defensive Publication: Magma Vertical Reinforcement Infill System for FDM 3D Printing
 
 **Publication Date:** February 9, 2026 (Updated March 16, 2026)
