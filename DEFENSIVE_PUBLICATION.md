@@ -88,6 +88,7 @@ Three new surface types support this architecture: `stZoneOuter` (outer zone inf
 
 The triangular lattice uses (a, b, c) integer coordinates where up triangles have `a + b + c == 2` and down triangles have `a + b + c == 1`. This coordinate system supports O(1) neighbor lookup, O(1) stagger level computation, and O(1) cell classification.
 
+{% raw %}
 ```cpp
 // src/libslic3r/Magma/MagmaTriangleCell.hpp
 
@@ -131,6 +132,7 @@ struct TriangleCellHash {
     }
 };
 ```
+{% endraw %}
 
 The lattice maps (a, b, c) coordinates to world (x, y) positions via a skewed coordinate system:
 
