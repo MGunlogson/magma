@@ -1465,6 +1465,16 @@ max_depth      = min(depth_thermal, depth_pressure)
 
 **Prior art scope:** This disclosure establishes prior art for: (a) using coupled Hagen-Poiseuille pressure and thermal diffusion models to automatically compute injection tube depth limits, (b) the mathematical property that volumetric speed drops out of the coupled solution, yielding a depth that depends only on geometry and material properties, (c) automatic injection speed derivation from the coupled solution, and (d) configurable material parameters (viscosity, thermal diffusivity, extruder pressure) for per-filament injection optimization.
 
+### 9.f Rectilinear (Grid) Infill Pattern
+
+**Design:** A grid lattice in which two families of parallel infill lines at 0 and 90 degrees form square (or, with unequal spacing, rectangular) cells. Each cell is a vertical channel with a square cross-section. As with the triangular pattern, cell spacing is derived from the nozzle and interior-width geometry, each cell is paired with an orthogonally adjacent neighbor sharing a wall, and a window gap omitted from the shared wall connects the pair into a U-tube. Stagger levels, spiral interlock, and per-layer volume computation apply directly, substituting the square-cell geometry (cross-section `iw^2`, perimeter `4 * iw`, hydraulic diameter `iw`) into the same formulas. A 45-degree-rotated variant produces diamond cells with injection holes offset between layers.
+
+**Advantages:** The two line families are long, continuous, orthogonal sweeps that print quickly with minimal direction changes (matching the speed characteristics of standard rectilinear/grid infill). The square cross-section presents a large flat sealing area and is straightforward to model and size.
+
+**Reason not implemented:** Square cells have 90-degree interior corners, which give poorer injection flow and are harder for a round nozzle to seal than the 120-degree corners of the triangular pattern. For equal wall material, the grid produces fewer reinforcing tubes per unit area than the triangular lattice, and window placement is limited to the 4 cell edges. The triangular pattern was prioritized for the initial release because its 60-degree line families pack more tubes per unit area and print in three continuous sweeps.
+
+**Prior art scope:** This disclosure establishes prior art for square-, rectangular-, and diamond-cross-section channel variants of the Magma tube system, including orthogonal grid cell pairing, window placement on grid cell edges, and the application of stagger, spiral interlock, and volume computation to grid-based Magma channels.
+
 ---
 
 ## 11. SPECULATIVE EMBODIMENTS
@@ -1507,6 +1517,12 @@ Beyond U-tube pairs, the channel network could employ:
 - **Back-pressure monitoring via motor torque:** Monitor extruder motor current or stepper driver load during injection to detect tube blockages, overfilling, or air locks. Abort injection for a specific tube if back-pressure exceeds a threshold.
 - **Micro-venting:** Sub-0.2mm diameter air exit holes at the top of vent-side tubes, sized to allow air to escape via surface tension effects while retaining the higher-viscosity injection plastic. Could be implemented as intentional gaps in the top layer of infill.
 - **Heated injection manifold:** A separate heated element that maintains injection material at elevated temperature during multi-tube injection, avoiding the thermal cycling of heating/cooling the printer's hotend for each injection layer.
+- **High-flow nozzles:** CHT, Volcano, or other high-throughput nozzle geometries that sustain greater volumetric flow at lower pressure drop, enabling faster injection before the surrounding cell walls heat-soak.
+- **Purpose-shaped injection nozzles:** Nozzles with tips profiled to match the tube cross-section (e.g., triangular) and a flat sealing face, improving the seal between nozzle and tube opening during Z-slam injection.
+- **Compliant tip seals:** Silicone or elastomer gaskets at the nozzle tip that conform to the print surface and seal around the tube opening during injection.
+- **Non-stick nozzle coatings:** PTFE or other low-adhesion coatings on the injection nozzle to prevent injected material from adhering to and lifting off the tip when the nozzle retracts.
+- **Thermally isolated injection nozzles:** A thermal break around the injection nozzle limiting heat conduction into the cell tops, reducing premature softening or deformation of the surrounding printed walls during injection.
+- **Enlarged-bore injection nozzles:** A nozzle with a larger bore dedicated to injection, providing greater volumetric throughput at lower pressure than the printing nozzle.
 
 ### 10.e Material Variations
 
@@ -1518,6 +1534,10 @@ The injection channels could be filled with materials other than the same thermo
 - **Reinforced slurries:** Chopped fiber matrices (carbon fiber, glass fiber, aramid) suspended in a carrier resin. The channel cross-section would be sized to allow fiber passage without clogging, and flow modeling would account for fiber orientation effects.
 - **Low-melting-point metals:** Solder, Field's metal, or other low-melting alloys for applications requiring electrical conductivity or thermal conductivity. Injection temperature and tube wall material compatibility would need to be verified.
 - **Foaming agents:** Materials that expand after injection to fill voids and provide insulation or cushioning. Channel sizing would account for expansion ratio.
+- **Asymmetric dual-material injection:** Printing the channel walls in a higher-temperature structural material (e.g., PETG, ABS, PC, or fiber-filled composite) while injecting a lower-temperature or lower-viscosity material (e.g., PLA), using a dual-extruder, IDEX, or toolchanger machine so the structure and injectate can have independent temperatures and nozzle geometries. The injected material interlocks mechanically with the channel geometry and need not chemically bond to the walls.
+- **Low-melt and sacrificial injectates:** Low-melting-point thermoplastics such as polycaprolactone (PCL, ~60°C) or TPU, or sacrificial sugar/wax fills for lost-material post-processing, chosen for ease of injection or subsequent removal.
+- **Adhesives and sealants:** Glue, silicone, or other room-temperature-curing adhesives and sealants injected to bond adjacent layers, where the injectate cures chemically rather than re-solidifying thermally.
+- **Post-injection annealing:** Heat-treating the completed part to fuse the injected material to the channel walls and strengthen the interfacial bond after injection.
 
 ### 10.f Shell Mode
 

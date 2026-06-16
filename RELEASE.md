@@ -2,12 +2,11 @@
 
 **OrcaSlicer Fork | May 2026**
 
-Magma creates sealed vertical channels within FDM-printed parts that are filled
-with injected plastic during printing, forming continuous interlocking
-reinforcement targeting Z-axis weakness in FDM parts. No hardware modifications
-required.
+Magma is a new infill type that creates sealed vertical channels within FDM-printed parts that are filled
+with injected plastic during printing, forming continuous "knitted" Z
+reinforcement to reduce Z layer weakness in FDM printed part. 
 
-This document is the v0.1 release notes and a complete reference for the new
+This document is the v0.1 release notes and reference for the new
 configuration settings. For a project overview, screenshots, and the experimental
 status of the physical printing side, see the [project README](README.md).
 
@@ -19,7 +18,7 @@ status of the physical printing side, see the [project README](README.md).
 
 - **Triangle cell infill pattern** (`ipMagmaTriangle`) — equilateral triangle
   lattice using (a,b,c) integer coordinates. Three families of parallel lines
-  (0/60/120 degrees) form sealed triangular channels.
+  (0/60/120 degrees) form sealed triangular channels. This is a modification of the traditional triangle infill pattern.
 
 - **U-tube pair assignment** — adjacent cells are paired and connected by window
   gaps at their shared wall. Plastic is injected down one cell and rises up
@@ -27,11 +26,10 @@ status of the physical printing side, see the [project README](README.md).
 
 - **Two-stage tube solver** —
   - *Stage 1 (Greedy):* Most-constrained-first heuristic assigns tubes in
-    100-500ms. Achieves 75-80% coverage alone.
+    100-500ms. Achieves ~77-81% coverage alone.
   - *Stage 2 (CP-SAT, optional):* Google OR-Tools constraint programming solver
-    refines the greedy solution, improving coverage by 3-7% with weak plane
-    avoidance. Uses integer micron arithmetic, discrete layer-boundary domains,
-    and spatial block partitioning for scalability.
+    refines the greedy solution, improving coverage by 3-7% and adding weak plane
+    avoidance. 
 
 - **Injection G-code generation** — per-layer injection stage with configurable
   temperature, volumetric flow rate, Z-slam nozzle sealing, dwell time, and
@@ -77,10 +75,11 @@ status of the physical printing side, see the [project README](README.md).
 
 ### Solver: Greedy Warm Start
 
-- **Most-constrained-first scoring** — each cell×layer is scored by the sum of
-  achievable tube heights across all neighbors. Lower score = fewer options =
-  higher priority. Boundary cells (1 neighbor) are naturally prioritized over
-  interior cells (3 neighbors), preventing stranding.
+- **Most-constrained-first scoring** — cells are assigned in priority order by
+  fewest viable neighbors first (ties broken by longest achievable tube), so
+  boundary cells (1 neighbor) are processed before interior cells (3 neighbors),
+  preventing stranding. A separate sum-of-achievable-heights difficulty map
+  guides the CP-SAT stage.
 
 - **Periodic re-scoring** — heap is rebuilt every `max(200, num_edges/3)`
   assignments with fresh consumed state, correcting stale priority ordering.
@@ -88,8 +87,9 @@ status of the physical printing side, see the [project README](README.md).
 - **Longest-tube preference** — greedily expands the longest valid tube between
   cell and its most-constrained neighbor, maximizing coverage per assignment.
 
-- **Natural stagger** — the priority ordering inherently spreads tube boundaries
-  across Z levels without explicit stagger logic.
+- **Stagger handled in refinement** — the greedy pass does not guarantee Z
+  staggering of tube boundaries; weak-plane avoidance is the CP-SAT stage's
+  responsibility (see below).
 
 ### Solver: CP-SAT Refinement (Optional)
 
@@ -97,20 +97,21 @@ status of the physical printing side, see the [project README](README.md).
   eliminating floating-point comparison issues in the constraint solver.
 
 - **Discrete domains** — start/end/size variables use `Domain::FromValues()`
-  with actual layer boundary positions, tightening LP relaxation by 10-30%.
+  with actual layer boundary positions, restricting the search to feasible layer
+  boundaries and tightening the LP relaxation.
 
 - **Weak plane avoidance** — per-cell cumulative stagger penalty using
   `AddCumulative` with Ring-0 (demand=2) and Ring-1 (demand=1) neighborhoods.
   Two-tier penalty (tight + wide) with configurable dodge distance.
 
-- **Spatial block partitioning** — XY: R=6 cells/block, 2 passes with 50%
-  overlap. Z: 50% overlapping windows. TBB parallelism across independent
-  blocks, 8 CP-SAT workers per block.
+- **Spatial block partitioning** — XY: R=16 cells/block, single pass with
+  ~12.5% block overlap. Z: 50% overlapping windows. TBB parallelism across
+  independent blocks, CP-SAT workers set to the available core count.
 
 - **Warm start from greedy** — committed segments become CP-SAT hints. Segments
   extending outside block boundaries become frozen intervals.
 
-- **Progress reporting** — "Magma: refining tubes X/Y" status bar updates.
+- **Progress reporting** — "Magma: refining tubes — X/Y" status bar updates.
   Cancellation supported between solver passes.
 
 ### Injection
@@ -169,8 +170,8 @@ status of the physical printing side, see the [project README](README.md).
 
 - **Triangle vertex overlap correction** — at 60-degree line crossings, material
   is deposited twice. Both infill flow and injection volume are corrected:
-  line width clamped to OrcaSlicer's min_bead_width, excess area subtracted from
-  tube volume calculations.
+  line width is reduced (floored at `magma_overlap_min_width`, default 90% of
+  nozzle diameter), excess area subtracted from tube volume calculations.
 
 - **Bridge detection zone-awareness** — zone outer infill is treated as solid
   support for bridges; unfilled cells (no tube coverage) are subtracted so
@@ -214,94 +215,9 @@ status of the physical printing side, see the [project README](README.md).
 
 ---
 
-## New Configuration Settings (45 total)
+## New Configuration Settings
 
-### Dual Infill Zones (Strength tab)
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `dual_infill_enabled` | off | Split infill into outer Magma zone + inner zone |
-| `dual_infill_outer_width` | 5.0mm | Width of outer Magma zone |
-| `dual_infill_shell_walls` | 1 | Boundary shell wall count |
-| `dual_infill_shell_width` | auto | Boundary shell line width |
-| `dual_infill_min_inner_width` | 10.0mm | Min inner zone width (smaller areas fill entirely with Magma) |
-| `dual_infill_solid_layers` | 1 | Solid layers at zone floor/ceiling |
-| `dual_infill_solid_thickness` | 0mm (range 0–10mm) | Min solid thickness at zone transitions |
-
-### Dual Infill Speeds (Speed tab)
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `dual_infill_outer_speed` | 0 (auto) | Outer zone infill speed |
-| `dual_infill_shell_speed` | 0 (auto) | Zone boundary shell speed |
-| `dual_infill_floor_speed` | 0 (auto) | Zone floor speed |
-| `dual_infill_ceiling_speed` | 0 (auto) | Zone ceiling speed |
-
-### Magma Pattern (Strength tab)
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `magma_tube_width_mode` | Auto | Auto (from nozzle OD) or Manual |
-| `magma_nozzle_outer_diameter` | 0 (3x bore) | Nozzle tip flat outer diameter |
-| `magma_interior_width` | 3.0mm | Manual tube interior width |
-| `magma_spiral_interlock` | off | Helical tube paths for pullout resistance |
-| `magma_overlap_line_correction` | on | Reduce line width at 60-degree overlaps |
-| `magma_overlap_min_width` | 0 (auto: 90% of nozzle) | Floor for overlap-corrected line width (%) |
-
-### Magma Tubes (Strength tab)
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `magma_window_height_mm` | 0 (auto) | Window gap height |
-| `magma_tube_height` | 10mm (range 1–100mm) | Max U-tube segment height |
-| `magma_tube_fill_factor` | 0.8 | Injection volume multiplier |
-| `magma_tube_solver_mode` | Basic | Basic (greedy only, ~1s) or Refined (greedy + CP-SAT, much slower; only worth it on complex parts) |
-| `magma_solver_timeout` | 60s (range 5–600s) | Total time budget for CP-SAT (Refined mode only) |
-| `magma_boundary_dodge` | 0 (auto: 4× max layer height) | Min Z-separation between neighboring tube boundaries |
-
-### Magma Injection (Strength tab)
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `magma_injection_temp` | 0 (no change) | Injection temperature |
-| `magma_injection_speed` | 8 mm3/s | Volumetric injection flow rate |
-| `magma_injection_z_slam` | 0.05mm | Nozzle depression depth for sealing (UI warns and resets values above 3.5mm — depth depends on nozzle geometry; measure your shoulder flat) |
-| `magma_injection_dwell` | 0ms | Hold time after injection |
-| `magma_injection_z_hop` | 2.0mm | Lift after each injection |
-| `magma_injection_retract` | on | Retract after injection |
-| `magma_injection_park` | on | Park nozzle during temp changes |
-| `magma_injection_park_z_hop` | 10.0mm | Park Z-hop height |
-| `magma_injection_park_retract` | 2.0mm | Extra retraction during park |
-| `magma_iron_tube_ends` | off | Iron over injection points |
-
-### Other tabs
-
-| Setting | Tab | Default | Description |
-|---------|-----|---------|-------------|
-| `magma_injection_fan_speed` | Filament > Cooling | 100% (per-filament array) | Part cooling fan speed during injection. One value per filament |
-| `magma_injection_filament` | Extruders | 0 (current) | Dedicated filament index for tube injection (0 = use whatever's currently loaded) |
-| `dual_infill_outer_filament` | Extruders | 1 | Filament for outer Magma zone |
-
-### Internal Settings (not in UI)
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `magma_ironing_flow` | 0 (auto) — % | Ironing flow rate for tube ends (percentage) |
-| `magma_ironing_spacing` | 0 (auto) — mm | Ironing line spacing (mm) |
-| `magma_ironing_speed` | 0 (auto) — mm/s | Ironing speed for tube ends |
-| `magma_injection_edge_pref` | Interior | Which cell receives injection |
-
-### General Improvements (non-Magma settings)
-
-These ship as part of the Magma branch but apply to any infill / multi-material setup:
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `filter_narrow_sparse_infill` | on | Replace narrow strips of sparse infill with solid fill (morphological opening, distinct from the existing area-based filter) |
-| `minimum_sparse_infill_width` | 0 (auto: 2× nozzle) | Threshold below which sparse infill is converted to solid |
-| `ooze_prevention_park` | off | Park nozzle to a safe XY position during multi-extruder temperature changes (uses the same 5-tier safe-park system as Magma injection) |
-| `ooze_prevention_park_z_hop` | 5.0 mm | Z lift when parking |
-| `ooze_prevention_park_retract` | 2.0 mm | Extra retraction during park to prevent ooze |
+Magma and the dual-zone system add 45 settings: 40 for Magma and dual-infill, plus 5 general improvements that ship on the branch but apply to any print. Every setting, its tab, and its default are in the **[settings reference](settings.md)**, and the same text appears as tooltips in the app.
 
 ---
 
@@ -330,13 +246,13 @@ src/libslic3r/
 
 | File | Changes |
 |------|---------|
-| PrintConfig.hpp/.cpp | 45 new settings, 4 new enums |
+| PrintConfig.hpp/.cpp | 45 new settings, 3 new enums |
 | PrintObject.cpp | Magma build pipeline, solver invocation, progress/cancel |
 | Print.cpp | Validation rules, dual infill gating |
 | LayerRegion.cpp | Zone surface type classification |
 | PerimeterGenerator.cpp/.hpp | Inner shell perimeter generation |
 | Fill.cpp, FillBase.cpp | Magma pattern factory registration |
-| Surface.hpp/.cpp | 3 new surface types (stZoneOuter, stZoneFloor, stZoneCeiling) |
+| Surface.hpp/.cpp | 4 new surface types (stZoneOuter, stZoneInner, stZoneFloor, stZoneCeiling) |
 | ExtrusionEntity.hpp/.cpp | 5 new extrusion roles |
 | GCode.cpp/.hpp | Injection stage, Magma extrusion handling |
 | GCode/CoolingBuffer.cpp | Injection cooling handling |
@@ -362,7 +278,7 @@ src/libslic3r/
 
 ### Solver Modes
 
-- **Basic** (greedy only): ~100-500ms, 75-80% coverage. Best for quick iteration.
+- **Basic** (greedy only): ~100-500ms, ~77-81% coverage. Best for quick iteration.
 - **Refined** (greedy + CP-SAT): adds 3-7% coverage at 2-10 minutes. Best for
   final production slices.
 
@@ -379,4 +295,4 @@ src/libslic3r/
 
 ## License
 
-MIT (OrcaSlicer fork). Defensive publication under CC0 1.0 Universal.
+OrcaSlicer fork (slicer code): AGPL-3.0. Magma documentation: MIT. Defensive publication: CC0 1.0 Universal.
