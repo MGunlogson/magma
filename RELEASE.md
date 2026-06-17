@@ -47,9 +47,9 @@ status of the physical printing side, see the [project README](README.md).
   between adjacent layers (geometry pinch points), the cell is split into separate
   spans so tubes cannot bridge across near-discontinuities.
 
-- **Auto window height** — when set to 0 (default), the window gap height is
-  derived from tube geometry with a 20% safety margin, ensuring the opening
-  exceeds the tube cross-section for free plastic flow between paired cells.
+- **Auto window height** — when set to 0 (default), the window gap height is the
+  geometric value (window cross-section = tube interior) plus one layer height,
+  so the opening reliably spans a full printed layer.
 
 - **Per-layer volume computation** — injection volumes account for variable layer
   heights, window gap volume, and triangle vertex overlap excess subtraction.

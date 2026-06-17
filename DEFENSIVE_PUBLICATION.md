@@ -830,13 +830,13 @@ static double calculate_auto_window_height_mm(double interior_width, double line
     double inset_side = side - line_width * SQRT3;
     if (inset_side <= 0)
         return 0.1;
-    // 20% safety margin: window opening should exceed tube cross-section
-    double window_height_mm = 1.2 * tube_area / inset_side;
+    // Geometric height: window cross-section equals tube interior (caller adds 1 layer)
+    double window_height_mm = tube_area / inset_side;
     return std::max(0.1, window_height_mm);
 }
 ```
 
-The formula `1.2 * tube_area / inset_side` derives from equating the tube interior cross-section area (the inset triangle area after accounting for line width eating into the interior) with the window opening area (`inset_side * window_height`), where `inset_side = side - line_width * sqrt(3)` is the gap length between two adjacent inset triangle interiors along the shared edge. The 1.2x multiplier provides a 20% safety margin so the window opening exceeds the tube cross-section for free flow. The result is in mm (not layers), supporting variable layer heights directly.
+The formula `tube_area / inset_side` derives from equating the tube interior cross-section area (the inset triangle area after accounting for line width eating into the interior) with the window opening area (`inset_side * window_height`), where `inset_side = side - line_width * sqrt(3)` is the gap length between two adjacent inset triangle interiors along the shared edge. The caller (`from_config`) then adds one layer height to this geometric value so the window reliably spans a full printed layer despite layer-registration accuracy. The result is in mm (not layers), supporting variable layer heights directly.
 
 ### 5.b Window Gap Interval Merging
 
@@ -1139,9 +1139,9 @@ double calculate_auto_interior_width(double nozzle_diameter)
 }
 ```
 
-When the nozzle outer diameter is known, `calculate_auto_interior_width_from_od()` computes the largest inset triangle that fits within the nozzle shoulder circle with a 0.2mm safety buffer. It uses circumscribed circle geometry: for an equilateral triangle with side `s`, the circumscribed diameter is `2s / sqrt(3)`. Setting this equal to `nozzle_od - 0.2` and solving for the interior width ensures all three vertices of the tube opening are covered by the nozzle flat during z-slam injection.
+When the nozzle outer diameter is known, `calculate_auto_interior_width_from_od()` computes the largest inset triangle that fits within the nozzle shoulder circle. It uses circumscribed circle geometry: for an equilateral triangle with side `s`, the circumscribed diameter is `2s / sqrt(3)`. Setting this equal to `nozzle_od` and solving for the interior width sizes the tube opening so all three vertices are covered by the nozzle flat during z-slam injection (report a slightly conservative flat to build in a sealing margin).
 
-Window height is auto-calculated from `1.2 * tube_area / inset_side` where `inset_side = side - line_width * sqrt(3)`. This equates the window opening cross-section to the tube interior cross-section with a 20% safety margin for free flow between tube halves. The minimum window height is 0.1mm.
+Window height is auto-calculated from `tube_area / inset_side` (plus one layer height) where `inset_side = side - line_width * sqrt(3)`. This equates the window opening cross-section to the tube interior cross-section, then adds one layer height so the window reliably spans a full printed layer. The minimum window height is 0.1mm.
 
 ---
 
