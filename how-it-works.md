@@ -68,6 +68,14 @@ Injection runs as the print climbs, not all at the end. At the right height the 
 
 The seal happens because the nozzle tip flat (and the cone above it) covers the tube opening when pressed down. A wide flat that already covers the opening only needs a token press; a narrow flat on a tapered tip has to go deeper so the widening cone reaches the opening width. Rather than guess, **Auto Z-slam** computes the depth from geometry — the tube opening, the measured tip flat, and the nozzle cone half-angle: `z_slam = max(0.1, (opening - flat) / (2 * tan(angle)))`. Turn it on and it tracks whatever tube size and nozzle you are running; leave it off to dial the depth in by hand.
 
+### Plunge (slam-melt)
+
+A single fixed press can lose its seal as pressure builds, letting plastic mushroom out around the nozzle instead of going down the tube. **Plunge** ramps the nozzle a little deeper *through* the injection (from the seal depth down to seal + plunge depth) so the hot tip keeps sinking into the softening tube top and holds the seal shut while the channel fills. The injection extrusion stays at your set volumetric rate the whole time.
+
+### Crater ironing
+
+Pressing a round nozzle into a triangular tube top always displaces a little plastic into a raised rim around a small crater — and the nozzle picks up a blob that would otherwise string to the next tube. **Crater ironing** is a special ironing pass right after each injection: the nozzle spirals inward over the spot so its angled cone plows the rim back into the crater (pushing it in *and* down) and irons the surface flat, while the motion scrapes the nozzle clean. It hovers over neighbouring cells on the way in — so it never irons a neighbour's air hole shut — and only presses down over its own crater. Travel to the next tube then uses the printer's normal z-hop and avoid-crossing.
+
 ### Injection order
 
 By default the injections on a layer are visited in shortest-travel order. But when two neighbouring cells get injected back-to-back, their combined heat can re-melt the thin walls between them and break the seal. **Spread heat** order fixes that: across every object on the plate it builds a per-layer order that deliberately separates spatially-near injections in time, so heat from one has dissipated before its neighbour is touched. It works like dispersion — repeatedly inject wherever is currently "coolest", treating each past injection as a heat source that fades with both time *and* distance, then a quick cleanup pass fixes any leftover clustering. Because it counts real travel time, a longer hop to a far cell is treated as extra cooling rather than pure cost. It runs in well under a millisecond during slicing and is cached.

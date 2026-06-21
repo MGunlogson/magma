@@ -127,6 +127,12 @@ status of the physical printing side, see the [project README](README.md).
   cone half-angle (`magma_nozzle_cone_half_angle`, default 30°). Tracks tube size
   and nozzle automatically; the manual depth field is hidden while it is on.
 
+- **Plunge / slam-melt** (`magma_injection_plunge`, on by default) — ramps the
+  nozzle deeper through the injection (from the seal depth down to seal +
+  `magma_injection_plunge_depth`, default 0.4mm) so the hot tip keeps the seal
+  pressed shut as the channel fills, driving plastic down the tube instead of
+  mushrooming out around the nozzle. Extrusion holds the set volumetric rate.
+
 - **Spread-heat injection ordering** (`magma_injection_ordering` = Spread heat) —
   a global, per-print-layer ordering (across all objects and instances) that
   separates spatially-near injections in time so combined heat does not re-melt
@@ -141,11 +147,18 @@ status of the physical printing side, see the [project README](README.md).
   during temperature changes: empty > support > sparse infill > solid infill >
   z-hop only.
 
-- **Tube-end ironing** — optional ironing pass over injection points to smooth
-  the surface and seal tube openings.
+- **Crater ironing** (`magma_injection_iron`, on by default) — a special ironing
+  pass after each injection: the nozzle spirals inward over the spot so its angled
+  cone plows the displaced rim back into the crater (in + down) and irons it flat,
+  while the motion scrapes the nozzle clean (so it doesn't string to the next
+  tube). Hovers over neighbouring cells so it never irons a neighbour's air hole
+  shut; only presses over its own crater. Start radius, neighbour-clearance, and
+  descent are derived from the cell/nozzle geometry; turns, speed, hover, and
+  start margin are configurable. Replaces the old tube-end ironing.
 
 - **Configurable injection parameters** — temperature, volumetric speed, dwell
-  time, Z-hop between injections, retraction, fan speed override.
+  time, retraction, fan speed override. (Inter-site travel — z-hop, retraction,
+  avoid-crossing — now uses the printer's normal travel settings.)
 
 - **Injection speed safety** — warns when configured volumetric speed exceeds
   the filament's max volumetric speed, and caps it automatically.
@@ -235,7 +248,7 @@ status of the physical printing side, see the [project README](README.md).
 
 ## New Configuration Settings
 
-Magma and the dual-zone system add 48 settings: 43 for Magma and dual-infill, plus 5 general improvements that ship on the branch but apply to any print. Every setting, its tab, and its default are in the **[settings reference](settings.md)**, and the same text appears as tooltips in the app.
+Magma and the dual-zone system add 50 settings: 45 for Magma and dual-infill, plus 5 general improvements that ship on the branch but apply to any print. Every setting, its tab, and its default are in the **[settings reference](settings.md)**, and the same text appears as tooltips in the app.
 
 ---
 
@@ -264,7 +277,7 @@ src/libslic3r/
 
 | File | Changes |
 |------|---------|
-| PrintConfig.hpp/.cpp | 48 new settings, 4 new enums |
+| PrintConfig.hpp/.cpp | 50 new settings, 4 new enums |
 | PrintObject.cpp | Magma build pipeline, solver invocation, progress/cancel |
 | Print.cpp | Validation rules, dual infill gating |
 | LayerRegion.cpp | Zone surface type classification |
