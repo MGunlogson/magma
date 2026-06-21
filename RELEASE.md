@@ -130,10 +130,12 @@ status of the physical printing side, see the [project README](README.md).
 - **Spread-heat injection ordering** (`magma_injection_ordering` = Spread heat) —
   a global, per-print-layer ordering (across all objects and instances) that
   separates spatially-near injections in time so combined heat does not re-melt
-  neighbouring cells. Solved with CP-SAT, warm-started from the travel-optimal
-  path (so it is never much longer), with a short per-layer time budget; the
-  result is cached in a dedicated slicing step and falls back to travel order if
-  the solve does not finish.
+  neighbouring cells. A time-decay dispersion greedy (each past injection is a
+  heat source fading in time and distance; real travel time counts as cooling)
+  builds the order and a violation-directed local search polishes it. Deterministic,
+  O(n²), sub-millisecond, cached in a dedicated slicing step. (A CP-SAT routing
+  formulation was implemented and measured but matched greedy+polish exactly, so
+  it was dropped — see DEFENSIVE_PUBLICATION.md §6.h.)
 
 - **Safe park positioning** — 5-tier priority system finds safe XY positions
   during temperature changes: empty > support > sparse infill > solid infill >
