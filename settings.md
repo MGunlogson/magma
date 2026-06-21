@@ -2,7 +2,7 @@
 
 Every Magma and dual-zone setting, where to find it in OrcaSlicer, and its default. The same text appears as tooltips in the app.
 
-There are 48 settings: 43 for Magma and dual-infill, plus 5 general improvements that ship on the branch but apply to any print.
+There are 50 settings: 45 for Magma and dual-infill, plus 5 general improvements that ship on the branch but apply to any print.
 
 ## Dual Infill Zones (Strength tab)
 
@@ -53,17 +53,22 @@ There are 48 settings: 43 for Magma and dual-infill, plus 5 general improvements
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `magma_injection_temp` | 0 (no change) | Injection temperature |
-| `magma_injection_speed` | 10 mm3/s | Volumetric injection flow rate |
+| `magma_injection_speed` | 10 mm3/s | Volumetric injection flow rate (capped at the filament's max volumetric speed; slicing warns if you set it higher) |
 | `magma_injection_ordering` | Minimize travel | Tube visit order per layer: Minimize travel (shortest path) or Spread heat (separates nearby injections in time so combined heat does not melt neighbouring cells) |
 | `magma_injection_z_slam_auto` | off | Compute Z-slam depth from nozzle geometry (tube opening, tip flat, cone half-angle) instead of by hand; when on, the manual depth below is ignored |
 | `magma_injection_z_slam` | 0.05mm | Manual nozzle depression depth for sealing (ignored when Auto Z-slam is on; UI warns and resets values above 3.5mm; depth depends on nozzle geometry, so measure your shoulder flat) |
+| `magma_injection_plunge` | on | "Slam-melt": ramp the nozzle deeper through the injection so the hot tip keeps the seal pressed as the tube fills (drives plastic down instead of mushrooming out) |
+| `magma_injection_plunge_depth` | 0.4mm | Extra depth the nozzle ramps to by the end of injection, on top of the seal depth |
 | `magma_injection_dwell` | 0ms | Hold time after injection |
-| `magma_injection_z_hop` | 4.0mm | Lift after each injection |
-| `magma_injection_retract` | on | Retract after injection |
+| `magma_injection_retract` | on | Retract after injection (during the break-lift, so it doesn't suck the plug back) |
 | `magma_injection_park` | on | Park nozzle during temp changes |
 | `magma_injection_park_z_hop` | 10.0mm | Park Z-hop height |
 | `magma_injection_park_retract` | 2.0mm | Extra retraction during park |
-| `magma_iron_tube_ends` | off | Iron over injection points |
+| `magma_injection_iron` | on | Crater ironing: after each injection, spiral the nozzle inward so the cone plows the displaced rim back into the crater and irons it flat while scraping the nozzle clean (replaces tube-end ironing). Travel between sites uses the printer's normal z-hop/retract |
+| `magma_injection_iron_turns` | 2 | Inward-spiral turns (more = shallower cuts, cleaner, slower) |
+| `magma_injection_iron_speed` | 0 (auto: ironing speed) | Crater ironing move speed |
+| `magma_injection_iron_hover` | 0.1mm | Hover above layer height while over neighbour cells, so it never irons a neighbour's air hole shut; descends over its own crater |
+| `magma_injection_iron_margin` | 0.5mm | How far outside the crater footprint the spiral starts |
 
 ## Other tabs
 
@@ -77,9 +82,6 @@ There are 48 settings: 43 for Magma and dual-infill, plus 5 general improvements
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `magma_ironing_flow` | 0 (auto), % | Ironing flow rate for tube ends (percentage) |
-| `magma_ironing_spacing` | 0 (auto), mm | Ironing line spacing (mm) |
-| `magma_ironing_speed` | 0 (auto), mm/s | Ironing speed for tube ends |
 | `magma_injection_edge_pref` | Interior | Which cell receives injection |
 
 ## General improvements (non-Magma)

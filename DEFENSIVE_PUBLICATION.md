@@ -40,6 +40,10 @@ Key technical innovations disclosed herein include:
 
 10. A global, per-print-layer thermal-aware injection ordering that, across all objects and instances on a layer, separates spatially-near injections in time to prevent combined heat from re-melting neighbouring cells. It is driven by a continuous decay field in which every prior injection is a heat source fading in both time and space (`exp(-dt/tau) * exp(-dist/lambda)`), built by a dispersion greedy that injects wherever is currently coolest-on-arrival and refined by a violation-directed local search; because `dt` is real elapsed injection time, inter-injection travel counts as cooling rather than opposing the spread. The solved order is cached in a dedicated slicing stage. (An equivalent exact CP-SAT routing formulation of the same objective was also implemented, measured, and is disclosed in Section 6.h as an alternative.)
 
+11. A progressive-plunge ("slam-melt") injection in which the sealing nozzle is ramped deeper into the tube top *during* extrusion, from the geometric seal depth to that depth plus a configured plunge, so the hot tip continuously sinks into the softening surface and maintains the seal under the rising channel pressure -- driving plastic down the tube instead of letting it escape laterally around the nozzle -- while the extrusion holds its commanded volumetric rate.
+
+12. A neighbour-aware crater-ironing finishing move that, after each injection, spirals the nozzle inward over the injection point so the angled nozzle cone plows the displaced rim back into the crater (deflecting material both inward and downward by the cone-normal geometry) and irons it flat while scraping the nozzle clean; the nozzle hovers above layer height over neighbouring cells and only descends to press inside a geometrically-derived radius that keeps the flat clear of any neighbouring tube opening's far vertex, guaranteeing a neighbour's air-escape hole is never sealed.
+
 All algorithms, code, and structures described in this document are dedicated to the public domain to establish prior art and prevent patenting by third parties.
 
 ---
@@ -990,18 +994,18 @@ Injection occurs as a dedicated print stage within each layer's processing, not 
 1. Switch to injection filament if configured (using OrcaSlicer's existing tool change infrastructure)
 2. Heat nozzle to injection temperature (with optional nozzle parking during heat-up)
 3. For each injection point (in the layer's chosen order -- travel-optimal or heat-spread, see Section 6.h):
-   a. Travel to injection cell center
+   a. Travel to injection cell center (built-in travel: retract/lift/avoid-crossing)
    b. Unretract
-   c. Z-slam seal (lower nozzle 0.1mm into surface)
+   c. Z-slam seal (lower nozzle to the seal depth, Section 6.c)
    d. Emit role and dimension tags for preview
    e. Emit tube visualization metadata
-   f. Extrude calculated volume as segmented G1 commands
+   f. Extrude calculated volume as segmented G1 commands, ramping the nozzle
+      deeper between segments if plunge is enabled (Section 6.c)
    g. Dwell for air displacement
-   h. Z-slam release (return to layer height)
-   i. Retract
-4. Optional ironing pass over filled tube ends
-5. Cool nozzle back to printing temperature
-6. Switch back to original print filament if needed
+   h. Break-lift to crack the seal, then retract
+   i. Crater ironing: spiral inward to plow the rim back and clean the nozzle (Section 6.d)
+4. Cool nozzle back to printing temperature
+5. Switch back to original print filament if needed
 
 ### 6.b Injection Speed and Volume
 
@@ -1057,38 +1061,42 @@ slam_depth = std::min(slam_depth, 3.5);                       // shared clamp
 
 When the flat already covers the opening (`flat >= opening`) the numerator is non-positive and the depth floors at a minimal 0.1mm press for a clean seal. A pointier cone (smaller `theta`) requires a deeper slam for the same opening; a wider flat requires less. This makes the seal depth track tube size and nozzle automatically, and is what allows tubes intentionally sized larger than the flat (Manual tube width) to still seal. When auto mode is on, the manual `magma_injection_z_slam` field is ignored (and hidden in the UI).
 
-### 6.d Tube-End Ironing
-
-After injection, an optional ironing pass flattens the tube ends using serpentine parallel lines within the cell boundary:
+**Progressive plunge ("slam-melt").** A single fixed seal depth can fail mid-injection: as channel pressure rises, plastic finds the lateral gap at the seal and mushrooms out around the nozzle instead of flowing down the tube. The plunge ramps the nozzle deeper *while injecting* — the extrusion is split into segments and the Z is stepped down between them from `slam_depth` to `slam_depth + plunge_depth` over the course of the injection, so the hot tip keeps sinking into the softening tube top and holds the seal shut as it fills:
 
 ```cpp
-// src/libslic3r/Magma/MagmaInjection.cpp
-
-// Iron each injection hole with serpentine parallel lines
-for (const auto& pt : points) {
-    double radius = tube_map.interior_width() / 2.0 - nozzle_d / 2.0;
-    if (radius <= 0.05)
-        continue;
-
-    bool left_to_right = true;
-    for (double dy = -radius; dy <= radius + 0.001; dy += ir_spacing) {
-        double r2 = radius * radius - dy * dy;
-        if (r2 <= 0)
-            continue;
-        double half_chord = std::sqrt(r2);
-
-        double x0 = pt.position.x() + (left_to_right ? -half_chord : half_chord);
-        double x1 = pt.position.x() + (left_to_right ? half_chord : -half_chord);
-        double y  = pt.position.y() + dy;
-
-        // Travel to line start, unretract, extrude ironing line
-        // ... serpentine direction alternation ...
-        left_to_right = !left_to_right;
-    }
-}
+// src/libslic3r/Magma/MagmaInjection.cpp -- per extrusion segment k of K
+double z = layer_z - (slam_depth + plunge_depth * (k + 1) / K);
+// emit: G1 Z<z>           (sink the nozzle)
+//       G1 F<inj_feed>    (re-assert injection feedrate; the Z move's feedrate
+//                          must not leak into the stationary extrude)
+//       G1 X.. Y.. E<seg> (extrude this segment at the injection rate)
 ```
 
-The ironing inscribes circular passes within the tube cross-section, using a radius reduced by half the nozzle diameter to avoid overhanging the tube walls. Ironing parameters (flow, spacing, speed) inherit from the user's ironing configuration if enabled, or use sensible defaults (10% flow, 0.1mm spacing, 15mm/s).
+The volumetric injection rate is held constant across the plunge (re-asserted after each Z move, since a raw Z move's feedrate is otherwise sticky). The total depth is clamped so `slam + plunge` stays within a safe intrusion.
+
+### 6.d Crater Ironing
+
+Pressing a round/conical nozzle into a triangular tube opening necessarily displaces material into a raised rim around a central crater (the seal/plunge intrusion), and coats the nozzle in plastic that would otherwise string to the next injection. Crater ironing is a finishing move after each injection that redistributes the rim back into the crater and cleans the nozzle in one motion.
+
+The sequence: (1) a small fixed **break-lift** cracks the seal *before* retracting (so retraction can't pull the plug back up through the still-sealed interface); (2) retract; (3) an **inward spiral** over the injection centre.
+
+The key mechanism is using the **nozzle cone as a plow**: with the flat hovering just above layer height and the nozzle positioned outside the rim, the cone's flank — whose outward normal points `(cos theta, -sin theta)` = inward and *downward* — deflects rim material toward the centre and down into the crater as the nozzle spirals in. A flat vertical edge would only push laterally; the cone's angle is what fills the depression.
+
+```
+crater_r = r_flat + (slam + plunge) * tan(theta)          # intrusion footprint radius
+start_R  = crater_r + margin                              # begin spiral outside the rim
+# Neighbour protection: only PRESS (descend to layer height) inside the radius
+# where the flat's outer edge stays >= 0.5 mm short of a neighbour opening's far
+# vertex, so a sliver of every neighbour air hole stays open:
+D    = neighbour-centroid distance  (= cell_side / sqrt(3) for the triangle grid)
+Ropen= neighbour opening vertex radius (inset triangle -- excludes cell walls)
+cap  = (D + Ropen) - 0.5 - r_flat
+# spiral radius r: shrink start_R -> 0 over `turns` revolutions
+#   r > cap  -> hover at layer_top + hover      (never irons a neighbour shut)
+#   r <= cap -> descend hover -> layer_top      (press/iron our own crater)
+```
+
+A short stroke across the centre flattens the gathered mound (only where `cap > 0`, i.e. the cell has room). The whole pass is non-extruding; the retraction performed at the break-lift keeps it from oozing. Inter-injection travel afterwards uses the slicer's normal travel path (retraction, z-hop, avoid-crossing). Tunable: turns (cut depth), speed, hover height, and start margin; start radius, neighbour clearance, and the descent profile are derived from the cell and nozzle geometry.
 
 ### 6.e Multi-Material Injection Filament Switching
 
@@ -1466,11 +1474,11 @@ The algorithm is: erode the SDF to find a thick core (regions where the interior
 
 **Reason for removal:** Significantly slower to print than the triangular pattern due to more direction changes per unit area. The triangular pattern produces 3 sets of parallel lines (0, 60, 120 degrees), each of which can be printed in a single continuous sweep. The hexagonal pattern requires 6 direction changes per cell perimeter, producing shorter line segments and more travel moves. Additionally, the triangular pattern produces more reinforcing tubes per unit area than the hexagonal pattern for the same cell spacing.
 
-### 9.c Whirl Seal Move
+### 9.c Whirl Seal Move (superseded by implemented Crater Ironing)
+
+**Status update:** This was the original design for a circular nozzle motion around the injection hole. It is now **implemented and superseded** by Crater Ironing (Section 6.d), which is a spiral (not a single circle) that additionally uses the nozzle cone to plow the displaced rim back into the crater and is neighbour-aware. The original single-circle design is retained below as disclosed prior art.
 
 **Design:** A circular motion of the nozzle around the injection hole before and/or after injection. The nozzle would trace a circle of radius approximately equal to the interior width, flattening any loose plastic from previous printing operations and ensuring a clean surface for the Z-slam seal to press against. Specification included configurable radius, speed, and number of revolutions.
-
-**Reason not implemented:** The Z-slam seal has proven sufficient in initial testing without the whirl move. The additional complexity and print time were not justified. The design is retained for cases where materials with high stringing or poor bed adhesion require additional surface preparation.
 
 ### 9.d Stagger-Level Injection Ordering (alternative within the implemented ordering family)
 
