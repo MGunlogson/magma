@@ -38,7 +38,7 @@ Key technical innovations disclosed herein include:
 
 9. An automatic Z-slam sealing-depth model derived from nozzle cone geometry, in which the press-down depth is computed from the tube opening, the nozzle tip flat diameter, and the nozzle cone half-angle as `depth = max(epsilon, (opening - flat) / (2 * tan(half_angle)))`, so the widening cone above the tip flat reaches the opening width and seals tubes larger than the flat without manual tuning.
 
-10. A global, per-print-layer thermal-aware injection ordering that, across all objects and instances on a layer, separates spatially-near injections in time to prevent combined heat from re-melting neighbouring cells -- formulated as a Hamiltonian-circuit (TSP) routing problem augmented with a distance-tiered "heat" penalty on the time gap between near pairs, solved by CP-SAT warm-started from the travel-optimal tour (guaranteeing the result is never worse than pure travel order), with the solved order cached in a dedicated slicing stage.
+10. A global, per-print-layer thermal-aware injection ordering that, across all objects and instances on a layer, separates spatially-near injections in time to prevent combined heat from re-melting neighbouring cells. It is driven by a continuous decay field in which every prior injection is a heat source fading in both time and space (`exp(-dt/tau) * exp(-dist/lambda)`), built by a dispersion greedy that injects wherever is currently coolest-on-arrival and refined by a violation-directed local search; because `dt` is real elapsed injection time, inter-injection travel counts as cooling rather than opposing the spread. The solved order is cached in a dedicated slicing stage. (An equivalent exact CP-SAT routing formulation of the same objective was also implemented, measured, and is disclosed in Section 6.h as an alternative.)
 
 All algorithms, code, and structures described in this document are dedicated to the public domain to establish prior art and prevent patenting by third parties.
 
@@ -1171,36 +1171,37 @@ The ordering is computed **globally per print layer**: all injection points from
 
 The order is solved once, ahead of G-code generation, in a dedicated slicing stage (`psMagmaInjectionOrder`) and cached by layer Z (the same merged-`print_z` bucketing OrcaSlicer uses for its per-layer tool ordering), so G-code export performs a lookup rather than a solve.
 
-**Formulation.** Spread-heat order is a Hamiltonian-circuit (travelling-salesman) routing problem augmented with a thermal penalty:
+**Decay model.** The objective is to keep spatially-near injections far apart in *real time*. Each prior injection is treated as a heat source that fades with both elapsed time and distance, so the residual heat a candidate point sees is
 
 ```
-Decision variables:
-  arc[i][j]  in {0,1}   -- the tour travels directly from point i to point j
-  rank[i]    in [0, n)  -- the visiting position (time index) of point i
-
-Travel cost:
-  travel = sum over i!=j of  dist(i,j) * arc[i][j]
-
-Heat penalty (only for "near" pairs):
-  For each unordered pair (i,j) with dist(i,j) <= R:
-    gap_ij = | rank[i] - rank[j] |
-    pen_ij = max(0, WINDOW - gap_ij)          -- crowded in time if visited < WINDOW apart
-    heat  += median_nn * w_ij * pen_ij
-
-Objective:
-  minimize  travel + heat
+heat(candidate) = sum over already-injected i of
+                    exp(-dt_i / tau) * exp(-dist(candidate, i) / lambda)
 ```
 
-- **Short-range coupling.** Only the immediate ring of neighbours matters thermally, so near pairs are restricted to `dist <= R` with `R ~ 1.8 * median_nn`, where `median_nn` is the median nearest-neighbour spacing of the layer's injection points. This keeps the model small and reflects that heat does not couple across distant tubes.
-- **Distance-tiered weighting.** Immediately-adjacent injections (`dist <= 1.2 * median_nn`) get weight `w = 2`; the rest of the ring gets `w = 1`. Closer pairs are punished harder for being injected close in time.
-- **Time window.** `WINDOW = min(n, 8)` rank positions; near pairs visited fewer than `WINDOW` injections apart incur a penalty proportional to how crowded they are.
-- **Circuit + position consistency.** A circuit constraint enforces a single tour; an MTZ rank formulation ties `rank` to the chosen arcs (`arc[i][j] => rank[j] = rank[i] + 1`), with the tour start fixed at the warm-start tour's first node so the hint is consistent.
+where `dt_i` is the real elapsed injection time since `i` was injected, `lambda` ~ the median nearest-neighbour spacing (heat couples only to the immediate ring), and `tau` is derived from the layer's own pace (`tau = SEP_TARGET * median per-injection step time`, `SEP_TARGET ~ 8`) so the time scale self-adjusts. `dt` comes from a real injection-phase timing model -- travel distance / travel speed, plus per-injection extrude time (volume / volumetric rate), z-hops, and dwell -- so a longer hop to a distant cell *is* extra cooling, coupling travel and thermal separation instead of opposing them.
 
-**TSP warm start (never worse than travel order).** The travel-optimal tour is computed first and supplied to the solver as a complete starting solution (ranks and consecutive arcs). Because the solver begins from the travel-optimal incumbent and minimises `travel + heat`, the returned order's combined objective can only improve on or equal it -- spread-heat order is never meaningfully longer than plain travel order, it just trades a little travel for thermal separation where that helps.
+**Stage 1 -- time-decay dispersion greedy.** Maintain the residual-heat field over the not-yet-injected points. Starting from the travel-optimal tour's first point, repeatedly:
+- pick the remaining point with the lowest heat *on arrival* -- `heat(c) * exp(-travel_time(cur,c)/tau)` plus a small travel tiebreak `beta * travel_time(cur,c)` so the nozzle prefers nearer cool spots;
+- advance the clock by that step's real time and decay the whole field by `exp(-step_time/tau)`;
+- deposit the new injection's spatial heat onto its neighbours.
 
-**Bounded cost and graceful fallback.** The solve runs under a short per-layer wall-clock budget. If the layer has more points than a build threshold, or the solver returns no usable assignment within the budget, the system falls back to the travel-optimal order and logs a warning -- the layer is still injected, just without heat spreading. The isolated solver (OR-Tools CP-SAT) is compiled in a separate translation unit so its protobuf dependencies do not affect the rest of the slicer.
+This naturally round-robins across spatial clusters (e.g. instances on a multi-part plate) and stripes across a single dense lattice, while keeping travel bounded.
 
-**Prior art scope.** This disclosure establishes prior art for: (a) ordering in-situ mid-print injection events by a global, cross-object, per-layer schedule rather than per-object; (b) combining a travel-minimising tour with a time-gap "heat" penalty between spatially-near injection points in a single objective; (c) distance-tiered weighting of that penalty so closer pairs are separated more in time; (d) warm-starting the combined solve from the travel-optimal tour to guarantee the result is no worse than pure travel order; and (e) caching the solved per-layer order in a dedicated slicing stage keyed by layer height.
+**Stage 2 -- violation-directed local-search polish.** Hill-climb on a rank-gap proxy of the objective: immediate-ring pairs visited fewer than `WINDOW = min(n, 8)` injections apart are "crowded". For each currently-crowded near pair, try swaps that increase its time separation; each swap's delta touches only the two moved points' neighbours, so it is O(degree). This dissolves residual clusters the greedy left behind -- including end-of-pass "painted-into-a-corner" leftovers -- converging to a local optimum.
+
+The whole pipeline is deterministic and runs in O(n^2) (sub-millisecond per layer for typical counts) with no external solver dependency. Very large layers (above a few thousand simultaneous injections) fall back to travel-optimal order.
+
+**Alternative formulation (implemented, measured, removed -- see git history).** The same objective was first expressed and solved *exactly* as a Hamiltonian-circuit (travelling-salesman) routing problem with an added time-gap heat penalty:
+
+```
+arc[i][j] in {0,1}  -- tour edge;   rank[i] in [0,n) -- visiting position (MTZ)
+minimize  sum dist(i,j)*arc[i][j]                                   (travel)
+        + sum over near pairs of  median_nn * w * max(0, WINDOW - |rank[i]-rank[j]|)   (heat)
+```
+
+solved with CP-SAT (OR-Tools), warm-started from the travel-optimal tour (so it is never worse than travel order), over a sparse arc set (each node's k-nearest neighbours plus the warm-start tour's edges, guaranteeing a feasible circuit exists), with a distance-tiered penalty (immediately-adjacent pairs weighted 2x) and a short per-layer time budget. This was benchmarked against the greedy+polish pipeline on the real decay objective: warm-started from the polished order it returned the *identical* order at a multi-second cost, so it was removed from the shipping path. It is disclosed here as prior art alongside the greedy method.
+
+**Prior art scope.** This disclosure establishes prior art for ordering in-situ mid-print injection events by: (a) a global, cross-object, per-layer schedule rather than per-object; (b) a continuous decay field combining temporal *and* spatial decay so each past injection's thermal influence fades in both time and distance; (c) using *real elapsed injection time* (travel + extrude + z-hop + dwell) as the temporal axis, so inter-injection travel counts as cooling; (d) a dispersion greedy that selects the lowest-heat-on-arrival point with a travel tiebreak; (e) a violation-directed local search refining only currently-crowded near pairs; (f) the equivalent exact formulation as a travel-plus-heat-penalty Hamiltonian circuit solved by constraint programming, warm-started from the travel-optimal tour over a sparse candidate-edge set; and (g) caching the solved per-layer order in a dedicated slicing stage keyed by layer height.
 
 ---
 
