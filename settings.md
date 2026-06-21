@@ -2,7 +2,7 @@
 
 Every Magma and dual-zone setting, where to find it in OrcaSlicer, and its default. The same text appears as tooltips in the app.
 
-There are 45 settings: 40 for Magma and dual-infill, plus 5 general improvements that ship on the branch but apply to any print.
+There are 48 settings: 43 for Magma and dual-infill, plus 5 general improvements that ship on the branch but apply to any print.
 
 ## Dual Infill Zones (Strength tab)
 
@@ -29,11 +29,12 @@ There are 45 settings: 40 for Magma and dual-infill, plus 5 general improvements
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `magma_tube_width_mode` | Auto | Auto (from nozzle OD) or Manual |
-| `magma_nozzle_outer_diameter` | 0 (3x bore) | Nozzle tip flat outer diameter |
+| `magma_tube_width_mode` | Auto | Auto (from nozzle tip flat) or Manual |
+| `magma_nozzle_outer_diameter` | 0 (3x bore) | Measured diameter of the flat at the nozzle tip — the seal size (label: "Nozzle tip flat") |
+| `magma_nozzle_cone_half_angle` | 30° (range 5–60°) | Half-angle of the cone above the tip flat; Auto Z-slam uses it to size the press depth |
 | `magma_interior_width` | 3.0mm | Manual tube interior width |
 | `magma_spiral_interlock` | off | Helical tube paths for pullout resistance |
-| `magma_overlap_line_correction` | on | Reduce line width at 60-degree overlaps |
+| `magma_overlap_line_correction` | off | Reduce line width at 60-degree overlaps (injection volume is corrected for overlap regardless) |
 | `magma_overlap_min_width` | 0 (auto: 90% of nozzle) | Floor for overlap-corrected line width (%) |
 
 ## Magma Tubes (Strength tab)
@@ -41,8 +42,8 @@ There are 45 settings: 40 for Magma and dual-infill, plus 5 general improvements
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `magma_window_height_mm` | 0 (auto) | Window gap height |
-| `magma_tube_height` | 10mm (range 1–100mm) | Max U-tube segment height |
-| `magma_tube_fill_factor` | 0.8 | Injection volume multiplier |
+| `magma_tube_height` | 4.5mm (range 1–100mm) | Max U-tube segment height |
+| `magma_tube_fill_factor` | 1.0 | Injection volume multiplier |
 | `magma_tube_solver_mode` | Basic | Basic (greedy only, ~1s) or Refined (greedy + CP-SAT, much slower; only worth it on complex parts) |
 | `magma_solver_timeout` | 60s (range 5–600s) | Total time budget for CP-SAT (Refined mode only) |
 | `magma_boundary_dodge` | 0 (auto: 4× max layer height) | Min Z-separation between neighboring tube boundaries |
@@ -52,10 +53,12 @@ There are 45 settings: 40 for Magma and dual-infill, plus 5 general improvements
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `magma_injection_temp` | 0 (no change) | Injection temperature |
-| `magma_injection_speed` | 8 mm3/s | Volumetric injection flow rate |
-| `magma_injection_z_slam` | 0.05mm | Nozzle depression depth for sealing (UI warns and resets values above 3.5mm; depth depends on nozzle geometry, so measure your shoulder flat) |
+| `magma_injection_speed` | 10 mm3/s | Volumetric injection flow rate |
+| `magma_injection_ordering` | Minimize travel | Tube visit order per layer: Minimize travel (shortest path) or Spread heat (separates nearby injections in time so combined heat does not melt neighbouring cells) |
+| `magma_injection_z_slam_auto` | off | Compute Z-slam depth from nozzle geometry (tube opening, tip flat, cone half-angle) instead of by hand; when on, the manual depth below is ignored |
+| `magma_injection_z_slam` | 0.05mm | Manual nozzle depression depth for sealing (ignored when Auto Z-slam is on; UI warns and resets values above 3.5mm; depth depends on nozzle geometry, so measure your shoulder flat) |
 | `magma_injection_dwell` | 0ms | Hold time after injection |
-| `magma_injection_z_hop` | 2.0mm | Lift after each injection |
+| `magma_injection_z_hop` | 4.0mm | Lift after each injection |
 | `magma_injection_retract` | on | Retract after injection |
 | `magma_injection_park` | on | Park nozzle during temp changes |
 | `magma_injection_park_z_hop` | 10.0mm | Park Z-hop height |

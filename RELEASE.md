@@ -33,15 +33,17 @@ status of the physical printing side, see the [project README](README.md).
 
 - **Injection G-code generation** — per-layer injection stage with configurable
   temperature, volumetric flow rate, Z-slam nozzle sealing, dwell time, and
-  retraction. TSP-ordered injection points minimize travel.
+  retraction. Injection visit order is selectable per layer (`magma_injection_ordering`):
+  Minimize travel (shortest path) or Spread heat (see below).
 
 - **Spiral interlock** — optional per-layer circular offset shifts the entire
   lattice so tubes follow helical paths, adding pullout resistance. Bounded by
   three physical constraints (line overlap, tube area overlap, helix angle).
 
-- **Auto tube sizing** — derives tube interior width from nozzle outer diameter
-  using circumscribed circle geometry, ensuring the nozzle flat covers all three
-  triangle vertices during Z-slam injection.
+- **Auto tube sizing** — derives tube interior width from the measured nozzle tip
+  flat (`magma_nozzle_outer_diameter`, labelled "Nozzle tip flat") using
+  circumscribed circle geometry, ensuring the nozzle flat covers all three triangle
+  vertices during Z-slam injection.
 
 - **Constriction detection** — when a cell's cross-sectional area drops below 30%
   between adjacent layers (geometry pinch points), the cell is split into separate
@@ -118,6 +120,20 @@ status of the physical printing side, see the [project README](README.md).
 
 - **Z-slam sealing** — nozzle lowers into the print surface during injection to
   seal the tube opening. Configurable depth (default 0.05mm, warns above 3.5mm).
+
+- **Auto Z-slam depth** (`magma_injection_z_slam_auto`) — derives the seal depth
+  from nozzle geometry instead of by hand: `z_slam = max(0.1, (opening - flat) /
+  (2 * tan(angle)))`, using the tube opening, the nozzle tip flat, and the nozzle
+  cone half-angle (`magma_nozzle_cone_half_angle`, default 30°). Tracks tube size
+  and nozzle automatically; the manual depth field is hidden while it is on.
+
+- **Spread-heat injection ordering** (`magma_injection_ordering` = Spread heat) —
+  a global, per-print-layer ordering (across all objects and instances) that
+  separates spatially-near injections in time so combined heat does not re-melt
+  neighbouring cells. Solved with CP-SAT, warm-started from the travel-optimal
+  path (so it is never much longer), with a short per-layer time budget; the
+  result is cached in a dedicated slicing step and falls back to travel order if
+  the solve does not finish.
 
 - **Safe park positioning** — 5-tier priority system finds safe XY positions
   during temperature changes: empty > support > sparse infill > solid infill >
@@ -217,7 +233,7 @@ status of the physical printing side, see the [project README](README.md).
 
 ## New Configuration Settings
 
-Magma and the dual-zone system add 45 settings: 40 for Magma and dual-infill, plus 5 general improvements that ship on the branch but apply to any print. Every setting, its tab, and its default are in the **[settings reference](settings.md)**, and the same text appears as tooltips in the app.
+Magma and the dual-zone system add 48 settings: 43 for Magma and dual-infill, plus 5 general improvements that ship on the branch but apply to any print. Every setting, its tab, and its default are in the **[settings reference](settings.md)**, and the same text appears as tooltips in the app.
 
 ---
 
@@ -246,7 +262,7 @@ src/libslic3r/
 
 | File | Changes |
 |------|---------|
-| PrintConfig.hpp/.cpp | 45 new settings, 3 new enums |
+| PrintConfig.hpp/.cpp | 48 new settings, 4 new enums |
 | PrintObject.cpp | Magma build pipeline, solver invocation, progress/cancel |
 | Print.cpp | Validation rules, dual infill gating |
 | LayerRegion.cpp | Zone surface type classification |

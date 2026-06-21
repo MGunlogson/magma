@@ -36,6 +36,10 @@ Key technical innovations disclosed herein include:
 
 8. A 5-tier safe park positioning system that finds optimal nozzle positions during injection temperature changes by classifying print surface regions (empty > support > sparse infill > solid infill > z-hop only).
 
+9. An automatic Z-slam sealing-depth model derived from nozzle cone geometry, in which the press-down depth is computed from the tube opening, the nozzle tip flat diameter, and the nozzle cone half-angle as `depth = max(epsilon, (opening - flat) / (2 * tan(half_angle)))`, so the widening cone above the tip flat reaches the opening width and seals tubes larger than the flat without manual tuning.
+
+10. A global, per-print-layer thermal-aware injection ordering that, across all objects and instances on a layer, separates spatially-near injections in time to prevent combined heat from re-melting neighbouring cells -- formulated as a Hamiltonian-circuit (TSP) routing problem augmented with a distance-tiered "heat" penalty on the time gap between near pairs, solved by CP-SAT warm-started from the travel-optimal tour (guaranteeing the result is never worse than pure travel order), with the solved order cached in a dedicated slicing stage.
+
 All algorithms, code, and structures described in this document are dedicated to the public domain to establish prior art and prevent patenting by third parties.
 
 ---
@@ -985,7 +989,7 @@ Injection occurs as a dedicated print stage within each layer's processing, not 
 
 1. Switch to injection filament if configured (using OrcaSlicer's existing tool change infrastructure)
 2. Heat nozzle to injection temperature (with optional nozzle parking during heat-up)
-3. For each injection point (TSP-ordered for minimal travel):
+3. For each injection point (in the layer's chosen order -- travel-optimal or heat-spread, see Section 6.h):
    a. Travel to injection cell center
    b. Unretract
    c. Z-slam seal (lower nozzle 0.1mm into surface)
@@ -1001,7 +1005,7 @@ Injection occurs as a dedicated print stage within each layer's processing, not 
 
 ### 6.b Injection Speed and Volume
 
-Injection volumetric speed is user-configured via `magma_injection_speed` (default 8 mm^3/s), capped at `filament_max_volumetric_speed`. Tube height is user-specified via `magma_tube_height` (default 10mm).
+Injection volumetric speed is user-configured via `magma_injection_speed` (default 10 mm^3/s), capped at `filament_max_volumetric_speed`. Tube height is user-specified via `magma_tube_height` (default 4.5mm).
 
 ```cpp
 // src/libslic3r/Magma/MagmaInjection.cpp
@@ -1016,12 +1020,12 @@ A coupled thermal-pressure model for automatic depth/speed calculation was desig
 
 ### 6.c Z-Slam Sealing
 
-During stationary injection, the nozzle lowers into the surface to create a mechanical seal against the tube opening. This prevents plastic from escaping laterally during injection. The depth is configurable via `magma_injection_z_slam` (default 0.05mm), capped at 2.0mm with a UI warning for large values. Set to 0 to disable.
+During stationary injection, the nozzle lowers into the surface to create a mechanical seal against the tube opening. This prevents plastic from escaping laterally during injection. The depth is configurable via `magma_injection_z_slam` (default 0.05mm), clamped to 3.5mm with a UI warning for large values. Set to 0 to disable.
 
 ```cpp
 // src/libslic3r/Magma/MagmaInjection.cpp
 
-double slam_depth = std::min(config.magma_injection_z_slam.value, 2.0);
+double slam_depth = std::min(config.magma_injection_z_slam.value, 3.5);
 
 // Lower nozzle into surface
 if (slam_depth > 0) {
@@ -1039,6 +1043,19 @@ if (slam_depth > 0) {
 ```
 
 Small values (0.05mm) work with nozzles that have a wide flat tip. Nozzles with a narrow flat and tapered tip may need deeper values (0.5-1.0mm) so the taper widens enough to seal the tube opening. The F600 feedrate (10mm/s) prevents sudden impacts.
+
+**Auto Z-slam depth from nozzle cone geometry.** Choosing this depth by hand requires reasoning about the nozzle's tip flat and the cone above it. When `magma_injection_z_slam_auto` is enabled, the depth is instead derived from geometry. A standard nozzle tip is a flat ring of diameter `flat` (the measured `magma_nozzle_outer_diameter`, "Nozzle tip flat") with a cone of half-angle `theta` (`magma_nozzle_cone_half_angle`, default 30 degrees) widening above it. To seal a tube opening of diameter `opening`, the nozzle must descend until the cone has widened from `flat` to `opening`. Each unit of descent widens the cone by `2 * tan(theta)`, giving:
+
+```
+// src/libslic3r/Magma/MagmaInjection.cpp
+double opening   = tube_map.tube_opening_diameter();          // inscribed opening of the inset triangle
+double flat      = nozzle_flat > 0 ? nozzle_flat : 3.0 * nozzle_diameter;
+double theta_rad = magma_nozzle_cone_half_angle * PI / 180.0;
+double slam_depth = std::max(0.1, (opening - flat) / (2.0 * std::tan(theta_rad)));
+slam_depth = std::min(slam_depth, 3.5);                       // shared clamp
+```
+
+When the flat already covers the opening (`flat >= opening`) the numerator is non-positive and the depth floors at a minimal 0.1mm press for a clean seal. A pointier cone (smaller `theta`) requires a deeper slam for the same opening; a wider flat requires less. This makes the seal depth track tube size and nozzle automatically, and is what allows tubes intentionally sized larger than the flat (Manual tube width) to still seal. When auto mode is on, the manual `magma_injection_z_slam` field is ignored (and hidden in the UI).
 
 ### 6.d Tube-End Ironing
 
@@ -1142,6 +1159,48 @@ double calculate_auto_interior_width(double nozzle_diameter)
 When the nozzle outer diameter is known, `calculate_auto_interior_width_from_od()` computes the largest inset triangle that fits within the nozzle shoulder circle. It uses circumscribed circle geometry: for an equilateral triangle with side `s`, the circumscribed diameter is `2s / sqrt(3)`. Setting this equal to `nozzle_od` and solving for the interior width sizes the tube opening so all three vertices are covered by the nozzle flat during z-slam injection (report a slightly conservative flat to build in a sealing margin).
 
 Window height is auto-calculated from `tube_area / inset_side` (plus one layer height) where `inset_side = side - line_width * sqrt(3)`. This equates the window opening cross-section to the tube interior cross-section, then adds one layer height so the window reliably spans a full printed layer. The minimum window height is 0.1mm.
+
+### 6.h Heat-Spread Injection Ordering
+
+When two spatially-adjacent tubes are injected back-to-back, their combined heat can re-melt the thin wall between them and break the seal. The order in which injections are visited on a layer is selectable via `magma_injection_ordering`:
+
+- **Minimize travel** -- the shortest nozzle path, computed by the existing KD-tree nearest-neighbour tour (`chain_points()`). This is the default.
+- **Spread heat** -- a thermal-aware order that deliberately separates spatially-near injections in time.
+
+The ordering is computed **globally per print layer**: all injection points from every object and every instance that fall on the same layer Z are collected and ordered together. A per-object order would be defeated on a plate of small parts, where each part's tubes would still be injected as a tight cluster. Because injection happens as the last operation on a layer, the global set is well-defined at that point.
+
+The order is solved once, ahead of G-code generation, in a dedicated slicing stage (`psMagmaInjectionOrder`) and cached by layer Z (the same merged-`print_z` bucketing OrcaSlicer uses for its per-layer tool ordering), so G-code export performs a lookup rather than a solve.
+
+**Formulation.** Spread-heat order is a Hamiltonian-circuit (travelling-salesman) routing problem augmented with a thermal penalty:
+
+```
+Decision variables:
+  arc[i][j]  in {0,1}   -- the tour travels directly from point i to point j
+  rank[i]    in [0, n)  -- the visiting position (time index) of point i
+
+Travel cost:
+  travel = sum over i!=j of  dist(i,j) * arc[i][j]
+
+Heat penalty (only for "near" pairs):
+  For each unordered pair (i,j) with dist(i,j) <= R:
+    gap_ij = | rank[i] - rank[j] |
+    pen_ij = max(0, WINDOW - gap_ij)          -- crowded in time if visited < WINDOW apart
+    heat  += median_nn * w_ij * pen_ij
+
+Objective:
+  minimize  travel + heat
+```
+
+- **Short-range coupling.** Only the immediate ring of neighbours matters thermally, so near pairs are restricted to `dist <= R` with `R ~ 1.8 * median_nn`, where `median_nn` is the median nearest-neighbour spacing of the layer's injection points. This keeps the model small and reflects that heat does not couple across distant tubes.
+- **Distance-tiered weighting.** Immediately-adjacent injections (`dist <= 1.2 * median_nn`) get weight `w = 2`; the rest of the ring gets `w = 1`. Closer pairs are punished harder for being injected close in time.
+- **Time window.** `WINDOW = min(n, 8)` rank positions; near pairs visited fewer than `WINDOW` injections apart incur a penalty proportional to how crowded they are.
+- **Circuit + position consistency.** A circuit constraint enforces a single tour; an MTZ rank formulation ties `rank` to the chosen arcs (`arc[i][j] => rank[j] = rank[i] + 1`), with the tour start fixed at the warm-start tour's first node so the hint is consistent.
+
+**TSP warm start (never worse than travel order).** The travel-optimal tour is computed first and supplied to the solver as a complete starting solution (ranks and consecutive arcs). Because the solver begins from the travel-optimal incumbent and minimises `travel + heat`, the returned order's combined objective can only improve on or equal it -- spread-heat order is never meaningfully longer than plain travel order, it just trades a little travel for thermal separation where that helps.
+
+**Bounded cost and graceful fallback.** The solve runs under a short per-layer wall-clock budget. If the layer has more points than a build threshold, or the solver returns no usable assignment within the budget, the system falls back to the travel-optimal order and logs a warning -- the layer is still injected, just without heat spreading. The isolated solver (OR-Tools CP-SAT) is compiled in a separate translation unit so its protobuf dependencies do not affect the rest of the slicer.
+
+**Prior art scope.** This disclosure establishes prior art for: (a) ordering in-situ mid-print injection events by a global, cross-object, per-layer schedule rather than per-object; (b) combining a travel-minimising tour with a time-gap "heat" penalty between spatially-near injection points in a single objective; (c) distance-tiered weighting of that penalty so closer pairs are separated more in time; (d) warm-starting the combined solve from the travel-optimal tour to guarantee the result is no worse than pure travel order; and (e) caching the solved per-layer order in a dedicated slicing stage keyed by layer height.
 
 ---
 
@@ -1412,11 +1471,13 @@ The algorithm is: erode the SDF to find a thick core (regions where the interior
 
 **Reason not implemented:** The Z-slam seal has proven sufficient in initial testing without the whirl move. The additional complexity and print time were not justified. The design is retained for cases where materials with high stringing or poor bed adhesion require additional surface preparation.
 
-### 9.d Stagger-Level Injection Ordering
+### 9.d Stagger-Level Injection Ordering (alternative within the implemented ordering family)
+
+**Status update:** Thermal-aware injection ordering **is now implemented** -- see Section 6.h, which orders injections globally per layer to spread spatially-near injections out in time. The stagger-level scheme described below was an earlier design for the same goal (preventing thermal cross-talk between simultaneously-filled neighbours); it is retained here as a disclosed alternative formulation within that family.
 
 **Design:** Order injection within each layer so that U-tube pairs with the lowest floor (deepest tubes) are filled first. This ensures that deeper tubes solidify before shallower fills, preventing thermal interactions between adjacent tubes being filled simultaneously. The ordering would be: within each stagger level, sort by `pair_start_layer` ascending; across stagger levels, process the lowest stagger level first.
 
-**Reason not implemented:** The current implementation uses TSP-ordered injection (via `chain_points()` KD-tree solver) to minimize travel distance between injection points. For most geometries, the travel optimization produces better print times than stagger-ordered injection, and the thermal interaction between adjacent tubes is minimal due to the stagger pattern already separating their window heights. The design may be relevant for extremely dense tube patterns where thermal cross-talk becomes significant.
+**Why the spatial heat-spread order (6.h) was implemented instead:** The stagger-level scheme orders by tube depth and stagger class, which only indirectly correlates with spatial proximity -- two tubes at the same stagger level can still be physically adjacent. The implemented order penalises *spatial* time-proximity directly (and globally across objects), which targets the actual heat-coupling failure more precisely, while the TSP warm start keeps travel close to optimal. The stagger-level variant remains a simpler heuristic of interest for extremely dense single-object tube patterns, and is disclosed for prior-art purposes.
 
 ### 9.e Coupled Thermal-Pressure Injection Depth Model
 

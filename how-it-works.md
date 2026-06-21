@@ -63,3 +63,11 @@ Injection runs as the print climbs, not all at the end. At the right height the 
 ![Mid-print injection](assets/screenshots/04-injection-paths.png)
 
 *Each red column is one injection event.*
+
+### Sealing depth (z-slam)
+
+The seal happens because the nozzle tip flat (and the cone above it) covers the tube opening when pressed down. A wide flat that already covers the opening only needs a token press; a narrow flat on a tapered tip has to go deeper so the widening cone reaches the opening width. Rather than guess, **Auto Z-slam** computes the depth from geometry — the tube opening, the measured tip flat, and the nozzle cone half-angle: `z_slam = max(0.1, (opening - flat) / (2 * tan(angle)))`. Turn it on and it tracks whatever tube size and nozzle you are running; leave it off to dial the depth in by hand.
+
+### Injection order
+
+By default the injections on a layer are visited in shortest-travel order. But when two neighbouring cells get injected back-to-back, their combined heat can re-melt the thin walls between them and break the seal. **Spread heat** order fixes that: it solves a global per-layer ordering (across every object on the plate) that deliberately separates spatially-near injections in time, so heat from one has dissipated before its neighbour is touched. It is warm-started from the travel-optimal path, so it is never much longer, and the short solve runs during slicing and is cached.

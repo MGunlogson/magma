@@ -63,7 +63,7 @@ I ran about a hundred prints on an ancient clunky Ender 3. The slicer side works
 
 #### Tube top compromise
 
-The top of the tube nearly always melts while injecting, compromising the seal that allows plastic to be injected into the tube. This could be remedied with a higher injection speed, lower viscosity injection material, better cooling, a film or cover or heat break in the nozzle to prevent heat flow into the print when the nozzle contacts the top of the cells. Or by injecting something that's not a thermoplastic, like resin or silicone. 
+The top of the tube nearly always melts while injecting, compromising the seal that allows plastic to be injected into the tube. This could be remedied with a higher injection speed, lower viscosity injection material, better cooling, a film or cover or heat break in the nozzle to prevent heat flow into the print when the nozzle contacts the top of the cells. Or by injecting something that's not a thermoplastic, like resin or silicone. A related failure — neighbouring cells melting each other when injected back-to-back — is what the **Spread heat** injection order (`magma_injection_ordering`) is for: it spaces nearby injections out in time so the heat dissipates between them.
 
 #### Injection flow limitations
 
@@ -89,10 +89,11 @@ Starting settings (guesses, none have given a totally clean print yet):
 | Sparse infill pattern | Magma Triangle |
 | `dual_infill_enabled` | on |
 | Inner zone infill | Lightning (the inner zone just supports the top, so use the least material) |
-| `magma_tube_height` | ~6 mm |
-| `magma_nozzle_outer_diameter` | your measured nozzle flat (~1 to 3.5 mm) |
-| `magma_injection_z_slam` | 0.5 to 1.0 mm |
-| `magma_tube_fill_factor` | 0.8, raise if tubes come out hollow |
+| `magma_tube_height` | ~4.5 to 6 mm |
+| `magma_nozzle_outer_diameter` (Nozzle tip flat) | your measured nozzle flat (~1 to 3.5 mm) |
+| `magma_injection_z_slam_auto` | on (lets the slicer size the seal depth from your nozzle geometry) |
+| `magma_injection_ordering` | Spread heat (keeps neighbouring injections from melting each other) |
+| `magma_tube_fill_factor` | 1.0, raise if tubes come out hollow |
 | `magma_tube_solver_mode` | Basic |
 | `magma_spiral_interlock` | off |
 
