@@ -107,8 +107,8 @@ status of the physical printing side, see the [project README](README.md).
   Two-tier penalty (tight + wide) with configurable dodge distance.
 
 - **Spatial block partitioning** — XY: R=16 cells/block, single pass with
-  ~12.5% block overlap. Z: 50% overlapping windows. TBB parallelism across
-  independent blocks, CP-SAT workers set to the available core count.
+  ~12.5% block overlap (R_OVERLAP=2). Z: 50% overlapping windows. Blocks are
+  solved sequentially; each block's CP-SAT solve uses all available cores.
 
 - **Warm start from greedy** — committed segments become CP-SAT hints. Segments
   extending outside block boundaries become frozen intervals.
@@ -154,7 +154,7 @@ status of the physical printing side, see the [project README](README.md).
   tube). Hovers over neighbouring cells so it never irons a neighbour's air hole
   shut; only presses over its own crater. Start radius, neighbour-clearance, and
   descent are derived from the cell/nozzle geometry; turns, speed, hover, and
-  start margin are configurable. Replaces the old tube-end ironing.
+  start margin are configurable.
 
 - **Configurable injection parameters** — temperature, volumetric speed, dwell
   time, retraction, fan speed override. (Inter-site travel — z-hop, retraction,
@@ -264,7 +264,8 @@ src/libslic3r/
 │   ├── MagmaTubeMap.hpp/.cpp         — Cell presence, tube pairs, volumes, windows
 │   ├── MagmaGreedyWarmStart.hpp/.cpp — Most-constrained-first tube assignment
 │   ├── MagmaTubeSolver.hpp/.cpp      — CP-SAT interval scheduling optimizer
-│   └── MagmaInjection.hpp/.cpp       — Injection G-code, visualization, parking
+│   ├── MagmaInjection.hpp/.cpp       — Injection G-code, visualization, parking
+│   └── MagmaInjectionOrder.hpp/.cpp  — Per-layer "spread heat" injection ordering
 ├── Fill/
 │   └── FillMagma.hpp/.cpp            — Triangle grid infill with window gaps
 ├── ZoneBoundary/

@@ -64,7 +64,7 @@ There are 50 settings: 45 for Magma and dual-infill, plus 5 general improvements
 | `magma_injection_park` | on | Park nozzle during temp changes |
 | `magma_injection_park_z_hop` | 10.0mm | Park Z-hop height |
 | `magma_injection_park_retract` | 2.0mm | Extra retraction during park |
-| `magma_injection_iron` | on | Crater ironing: after each injection, spiral the nozzle inward so the cone plows the displaced rim back into the crater and irons it flat while scraping the nozzle clean (replaces tube-end ironing). Travel between sites uses the printer's normal z-hop/retract |
+| `magma_injection_iron` | on | Crater ironing: after each injection, spiral the nozzle inward so the cone plows the displaced rim back into the crater and irons it flat while scraping the nozzle clean. Travel between sites uses the printer's normal z-hop/retract |
 | `magma_injection_iron_turns` | 2 | Inward-spiral turns (more = shallower cuts, cleaner, slower) |
 | `magma_injection_iron_speed` | 0 (auto: ironing speed) | Crater ironing move speed |
 | `magma_injection_iron_hover` | 0.1mm | Hover above layer height while over neighbour cells, so it never irons a neighbour's air hole shut; descends over its own crater |

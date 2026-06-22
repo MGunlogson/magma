@@ -27,8 +27,9 @@ MagmaTubeSolver::solve()
   greedy_warm_start()       — fast heuristic, populates m_committed
   validate("GREEDY")        — check constraints, log coverage
   if (Refined mode) {
-    solve_pass(0, 0)        — single XY pass per Z level, CP-SAT refinement
-                              over R x R overlapping blocks
+    for (z_off = 0; z_off <= max_layer; z_off += z_stride)
+      solve_pass(0, 0, z_off)  — one XY pass over R x R overlapping blocks
+                                 for this 50%-overlapping Z window
     validate("CPSAT")       — check constraints, log coverage
   }
   extract_results()         — microns → UTubePair layer indices
@@ -41,7 +42,7 @@ MagmaTubeSolver::solve()
 |---------|---------|-------------|
 | Tube solver quality | Basic | Basic (greedy only, ~1s) or Refined (greedy + CP-SAT) |
 | Solver timeout | 60s | Total time budget for CP-SAT (Refined only, 5–600s) |
-| Stagger period | auto | Grid clustering period in mm (0=auto: max_tube_height/3) |
+| Weak plane avoidance | 0 (auto) | Min Z-separation between neighboring tube boundaries in mm, via `magma_boundary_dodge` (0 = auto ≈ 4 × max layer height). Refined mode only |
 
 ---
 
@@ -144,44 +145,69 @@ interval : OptionalIntervalVar(start, size, end, active)
 2. **Height bounds** — encoded in size domain [min_h_um, max_h_um]
 3. **Segment ordering** — symmetry breaking within runs
 
-**Objective**:
+**Objective** — a three-tier lexicographic preference encoded as a single
+weighted sum (each tier's minimum contribution exceeds the next tier's maximum
+total, so higher tiers always dominate):
 ```
 Maximize:
-    W_COVERAGE(1M) × Σ{ contrib }        — coverage (fill ratio, dominant)
-  - W_AVG(5)       × deficit              — discourage avg tube length reduction
+    W_COVERAGE(1M) × Σ{ contrib }              — Tier 1: coverage (fill µm, dominant)
+  - W_ACTIVATION(100) × Σ{ active }            — Tier 2: prefer fewer, longer tubes
+  - W_STAGGER_TIGHT(2) × Σ{ tight_capacity }   — Tier 3a: spread boundaries (close range)
+  - W_STAGGER_WIDE(1)  × Σ{ wide_capacity }    — Tier 3b: spread boundaries (wider range)
 ```
 
-**Average-length deficit** (1 IntVar, 1 constraint):
-```
-min_avg    = greedy_avg × (100 - stagger_tolerance) / 100   (stagger_tolerance is an internal constant)
-deficit    = max(0, min_avg × Σ{active} - Σ{contrib})
-```
+**Why a fixed activation cost?** A linear length bonus (`W × size`) cannot
+prevent splitting, because `W × S == W × (S/2) + W × (S/2)`. A fixed penalty per
+active segment makes one long tube strictly cheaper than two short tubes of the
+same total coverage. `W_ACTIVATION` is set above the maximum stagger benefit a
+single split could earn (~36), so coverage and tube count are never traded away
+for stagger.
 
 | Weight | Value | Purpose |
 |--------|-------|---------|
 | W_COVERAGE | 1,000,000 | 1µm of coverage >> all other terms; fill never sacrificed |
-| W_AVG | 5 | Worst-case deficit ~500K < 1M; discourages splits at ~20-30K per |
+| W_ACTIVATION | 100 | Fixed cost per active segment; prefers fewer, longer tubes |
+| W_STAGGER_TIGHT | 2 | Penalty per unit of peak boundary concentration in the tight zone |
+| W_STAGGER_WIDE | 1 | Penalty per unit of peak boundary concentration in the wide zone |
 
-### Stagger: Domain Restriction
+### Stagger: Cumulative-Constraint Penalty
 
-Stagger is handled structurally by domain restriction, not by objective terms.
-Tube boundaries can only land on `{run endpoints ∪ phase-grid points}`:
+Stagger is an **objective penalty** built from CP-SAT cumulative constraints, not
+domain restriction. Boundaries are free to land on any feasible layer boundary;
+the objective simply discourages neighboring tube ends from clustering at the
+same Z. The strength of the penalty is controlled by the dodge distance from the
+`magma_boundary_dodge` setting (0 = stagger disabled, the whole block below is
+skipped when `dodge_um == 0`).
 
-- **Run endpoints** (start/end of viable cell-pair range): always included,
-  guaranteeing that the maximum-fill solution is always feasible.
-- **Phase-grid points**: 3 grids offset by 0, P/3, 2P/3 where P = stagger_period.
-  SharedEdge type (Horizontal/Col60/Diag120) maps each edge to its phase via
-  triangle 3-coloring. Adjacent edges always use different grids.
+**Exclusion zones.** Each tube boundary (a `start` or `end`, plus any frozen
+boundary from committed segments) gets a fixed-width interval centered on its
+position. Two zone widths are used:
 
-When a run must split (run height > max_tube_height), internal split points are
-forced to grid positions. Different edges have different grids → different split
-positions → automatic stagger with zero constraints or objective terms.
+- **Wide zone** = `dodge_um` (the full dodge distance).
+- **Tight zone** = `dodge_um / 2`.
 
-No W_GRID_DIST, W_DODGE, or W_ACTIVATION in the objective. Earlier designs used
-dodge penalties, but these spread injections across many Z levels. Domain
-restriction concentrates them on a small set of grid-aligned heights. The
-average-length deficit discourages needless splitting (same effect as the old
-W_ACTIVATION but tied to the actual metric we care about).
+If two boundaries fall within a zone width of each other, their intervals
+overlap. Feeding those intervals to a cumulative constraint makes the peak number
+of simultaneously-overlapping boundaries show up as the cumulative's *capacity*
+variable. That capacity is left fully soft (any value is feasible) and is
+**subtracted from the objective**, so the solver minimizes peak boundary
+concentration — i.e. it pushes boundaries apart.
+
+**Tight vs. wide.** Each cell builds two cumulatives — one over tight zones
+(weight `W_STAGGER_TIGHT = 2`) and one over wide zones (weight
+`W_STAGGER_WIDE = 1`). This gives a graduated penalty: boundaries that are very
+close together overlap in *both* the tight and wide zones and pay both penalties;
+boundaries that are only moderately close overlap in the wide zone alone and pay
+only the smaller penalty.
+
+**Ring weighting.** Cumulatives are built per cell over its Ring-1 neighborhood,
+with each boundary contributing a demand:
+
+- **Ring-0** (the cell's own edges): demand = 2.
+- **Ring-1** (edges of neighboring cells): demand = 1.
+
+Boundaries on the cell's own edges therefore count double, so the solver works
+hardest to separate the boundaries most directly above/below each other.
 
 ### Warm Start from Greedy
 
@@ -196,9 +222,14 @@ CP-SAT warm start hints:
 The model is spatially partitioned into XY blocks for bounded computation:
 
 - **XY**: R=16 cells per block side. Single XY pass per Z level with overlapping
-  blocks so every edge is interior to at least one block.
-- **Z**: Full object height (no Z windowing). Stagger decisions at the bottom
-  cascade freely through the entire column without window boundary blindness.
+  blocks (R_OVERLAP=2 cells, stride = R − R_OVERLAP) so every edge is interior to
+  at least one block.
+- **Z**: 50%-overlapping Z windows. Window = 4 × max tube height in layers,
+  stride = 2 × max tube height in layers (= window minus overlap). The driver
+  loops `for (z_off = 0; z_off <= max_layer; z_off += z_stride)`, calling
+  `solve_pass(0, 0, z_off, …)` once per window. The 2× overlap means every tube
+  lies fully inside at least two Z windows, so boundary decisions are never made
+  blind to the layers just above or below.
 
 Edge collection uses cell reverse lookup (`m_cell_edges`) instead of scanning
 all edges — O(block cells × edges per cell) instead of O(total edges).
