@@ -66,7 +66,7 @@ Injection runs as the print climbs, not all at the end. At the right height the 
 
 ### Sealing depth (z-slam)
 
-The seal happens because the nozzle tip flat (and the cone above it) covers the tube opening when pressed down. A wide flat that already covers the opening only needs a token press; a narrow flat on a tapered tip has to go deeper so the widening cone reaches the opening width. Rather than guess, **Auto Z-slam** computes the depth from geometry — the tube opening, the measured tip flat, and the nozzle cone half-angle: `z_slam = max(0.1, (opening - flat) / (2 * tan(angle)))`. Turn it on and it tracks whatever tube size and nozzle you are running; leave it off to dial the depth in by hand.
+The seal happens because the nozzle tip flat (and the cone above it) covers the tube opening when pressed down. A wide flat that already covers the opening only needs a token press; a narrow flat on a tapered tip has to go deeper so the widening cone reaches the opening width. Rather than guess, **Auto Z-slam** computes the depth from geometry — the tube opening, the measured tip flat, and the nozzle cone half-angle: `z_slam = max(0.1, (opening + margin - flat) / (2 * tan(angle)))`, where `margin` is a small seal margin (0.1mm) so the cone clears the opening with room to spare rather than just grazing it. Turn it on and it tracks whatever tube size and nozzle you are running; leave it off to dial the depth in by hand.
 
 ### Plunge (slam-melt)
 
@@ -74,7 +74,7 @@ A single fixed press can lose its seal as pressure builds, letting plastic mushr
 
 ### Crater ironing
 
-Pressing a round nozzle into a triangular tube top always displaces a little plastic into a raised rim around a small crater — and the nozzle picks up a blob that would otherwise string to the next tube. **Crater ironing** is a special ironing pass right after each injection: the nozzle spirals inward over the spot so its angled cone plows the rim back into the crater (pushing it in *and* down) and irons the surface flat, while the motion scrapes the nozzle clean. It hovers over neighbouring cells on the way in — so it never irons a neighbour's air hole shut — and only presses down over its own crater. Travel to the next tube then uses the printer's normal z-hop and avoid-crossing.
+Pressing a round nozzle into a triangular tube top always displaces a little plastic into a raised rim around a small crater — and the nozzle picks up a blob that would otherwise string to the next tube. **Crater ironing** is a special ironing pass right after each injection: the nozzle spirals inward over the spot so its angled cone plows the rim back into the crater (pushing it in *and* down) and irons the surface flat, while the motion scrapes the nozzle clean. It hovers over neighbouring cells on the way in — so it never irons a neighbour's air hole shut — and only presses down over its own crater. Travel to the next tube then uses the printer's normal z-hop and avoid-crossing. The pass deposits no plastic, so in the slice preview it shows up under the **Wipe** move type (tagged as Ironing) rather than as an injection — turn on Wipe (or Travel) in the preview's move-type options to see it.
 
 ### Injection order
 

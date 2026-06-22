@@ -784,15 +784,15 @@ The warm start gives CP-SAT a complete initial solution, dramatically reducing s
 
 The model is spatially partitioned into independent blocks for bounded computation:
 
-- **XY partitioning:** R=6 cells per block side. 2 XY passes with R/2 offset (50% overlap). Every edge is interior to at least one block.
+- **XY partitioning:** R=16 cells per block side, a single XY pass per Z level. Adjacent blocks overlap by R_OVERLAP=2 cells (stride = R − R_OVERLAP), so every edge is interior to at least one block.
 - **Z partitioning:** Window = 4 × max_h_layers, stride = 2 × max_h_layers (50% overlap). Every tube is fully visible in at least one Z window.
 - **Z range trimming:** Loop terminates at the maximum layer with any edge activity, not the model's total layer count (skips empty upper Z levels).
 - **Edge collection:** Uses cell reverse lookup (`m_cell_edges`) instead of scanning all edges — O(block cells × edges per cell) instead of O(total edges).
 
 ### 5.g Parallelism and Cancellation
 
-- **TBB across blocks:** Independent blocks within each pass are solved in parallel using `tbb::parallel_for`.
-- **CP-SAT workers per block:** 8 internal search workers.
+- **Block scheduling:** Blocks are solved sequentially (not in parallel across blocks).
+- **CP-SAT workers per block:** all available cores (`tbb::this_task_arena::max_concurrency()`) — the parallelism lives *inside* each block's CP-SAT solve rather than across blocks.
 - **Cancellation:** Checked between passes via `throw_if_canceled()` (OrcaSlicer's standard pattern). Current blocks finish their timeout before cancellation takes effect.
 - **Progress:** Reports "Magma: refining tubes X/Y" via OrcaSlicer's status callback.
 
@@ -1027,39 +1027,43 @@ A coupled thermal-pressure model for automatic depth/speed calculation was desig
 During stationary injection, the nozzle lowers into the surface to create a mechanical seal against the tube opening. This prevents plastic from escaping laterally during injection. The depth is configurable via `magma_injection_z_slam` (default 0.05mm), clamped to 3.5mm with a UI warning for large values. Set to 0 to disable.
 
 ```cpp
-// src/libslic3r/Magma/MagmaInjection.cpp
+// src/libslic3r/Magma/MagmaInjection.cpp (simplified)
 
 double slam_depth = std::min(config.magma_injection_z_slam.value, 3.5);
 
-// Lower nozzle into surface
+// Lower the nozzle into the surface to seal against the opening
 if (slam_depth > 0) {
-    sprintf(buf, "G1 Z%.3f F600 ; z-slam seal\n", layer_z - slam_depth);
+    sprintf(buf, "G1 Z%.3f F%d ; z-slam seal\n", layer_z - slam_depth, z_feedrate);
     gcode += buf;
 }
 
-// ... injection extrusion ...
+// ... injection extrusion (optionally with progressive plunge) ...
 
-// Return to normal layer height
-if (slam_depth > 0) {
-    sprintf(buf, "G1 Z%.3f F600 ; z-slam release\n", layer_z);
-    gcode += buf;
-}
+// Finish: crack the seal *before* retracting, so retraction can't pull the
+// freshly injected plug back up through the still-sealed interface. A small
+// fixed break-lift relieves the contact pressure regardless of plunge depth;
+// the crater-iron wipe (Section 6.d) then returns the nozzle to layer height.
+sprintf(buf, "G1 Z%.3f F%d ; injection break-lift\n",
+        layer_z - slam_depth - plunge_depth + 0.3, z_feedrate);
+gcode += buf;
+if (inj_retract)
+    gcode += gcodegen.writer().retract();
 ```
 
-Small values (0.05mm) work with nozzles that have a wide flat tip. Nozzles with a narrow flat and tapered tip may need deeper values (0.5-1.0mm) so the taper widens enough to seal the tube opening. The F600 feedrate (10mm/s) prevents sudden impacts.
+Small values (0.05mm) work with nozzles that have a wide flat tip. Nozzles with a narrow flat and tapered tip may need deeper values (0.5-1.0mm) so the taper widens enough to seal the tube opening. The slam/lift moves use the printer's Z travel speed (`travel_speed_z`, firmware-capped) rather than a hardcoded feedrate, so the nozzle does not linger on the hot tube top.
 
-**Auto Z-slam depth from nozzle cone geometry.** Choosing this depth by hand requires reasoning about the nozzle's tip flat and the cone above it. When `magma_injection_z_slam_auto` is enabled, the depth is instead derived from geometry. A standard nozzle tip is a flat ring of diameter `flat` (the measured `magma_nozzle_outer_diameter`, "Nozzle tip flat") with a cone of half-angle `theta` (`magma_nozzle_cone_half_angle`, default 30 degrees) widening above it. To seal a tube opening of diameter `opening`, the nozzle must descend until the cone has widened from `flat` to `opening`. Each unit of descent widens the cone by `2 * tan(theta)`, giving:
+**Auto Z-slam depth from nozzle cone geometry.** Choosing this depth by hand requires reasoning about the nozzle's tip flat and the cone above it. When `magma_injection_z_slam_auto` is enabled, the depth is instead derived from geometry. A standard nozzle tip is a flat ring of diameter `flat` (the measured `magma_nozzle_outer_diameter`, "Nozzle tip flat") with a cone of half-angle `theta` (`magma_nozzle_cone_half_angle`, default 30 degrees) widening above it. To seal a tube opening of diameter `opening`, the nozzle must descend until the cone has widened from `flat` to `opening` plus a small seal margin (0.1mm, so the cone clears the opening rather than just grazing it and so the auto depth satisfies the seal-prediction check). Each unit of descent widens the cone by `2 * tan(theta)`, giving:
 
 ```
 // src/libslic3r/Magma/MagmaInjection.cpp
 double opening   = tube_map.tube_opening_diameter();          // inscribed opening of the inset triangle
 double flat      = nozzle_flat > 0 ? nozzle_flat : 3.0 * nozzle_diameter;
 double theta_rad = magma_nozzle_cone_half_angle * PI / 180.0;
-double slam_depth = std::max(0.1, (opening - flat) / (2.0 * std::tan(theta_rad)));
+double slam_depth = std::max(0.1, (opening + 0.1 - flat) / (2.0 * std::tan(theta_rad)));  // +0.1mm seal margin
 slam_depth = std::min(slam_depth, 3.5);                       // shared clamp
 ```
 
-When the flat already covers the opening (`flat >= opening`) the numerator is non-positive and the depth floors at a minimal 0.1mm press for a clean seal. A pointier cone (smaller `theta`) requires a deeper slam for the same opening; a wider flat requires less. This makes the seal depth track tube size and nozzle automatically, and is what allows tubes intentionally sized larger than the flat (Manual tube width) to still seal. When auto mode is on, the manual `magma_injection_z_slam` field is ignored (and hidden in the UI).
+When the flat already covers the opening with margin (`flat >= opening + margin`) the numerator is non-positive and the depth floors at a minimal 0.1mm press for a clean seal. A pointier cone (smaller `theta`) requires a deeper slam for the same opening; a wider flat requires less. This makes the seal depth track tube size and nozzle automatically, and is what allows tubes intentionally sized larger than the flat (Manual tube width) to still seal. When auto mode is on, the manual `magma_injection_z_slam` field is ignored (and hidden in the UI).
 
 **Progressive plunge ("slam-melt").** A single fixed seal depth can fail mid-injection: as channel pressure rises, plastic finds the lateral gap at the seal and mushrooms out around the nozzle instead of flowing down the tube. The plunge ramps the nozzle deeper *while injecting* — the extrusion is split into segments and the Z is stepped down between them from `slam_depth` to `slam_depth + plunge_depth` over the course of the injection, so the hot tip keeps sinking into the softening tube top and holds the seal shut as it fills:
 
@@ -1659,7 +1663,7 @@ The disclosed system encompasses, but is not limited to:
 14. Constriction detection using area-ratio heuristics
 15. Parametric gap splitting for diagonal infill lines
 16. Volumetric speed fallback hierarchies for injection extrusion
-17. Tube-end ironing passes after injection
+17. Crater ironing: a post-injection inward-spiral plow that pushes the displaced rim back into the crater and scrapes the nozzle clean, hovering over neighbour cells so their air holes stay open
 18. Multi-material filament switching for injection
 19. Segmented injection extrusion for progressive preview animation
 20. Auto-sizing of tube geometry from nozzle diameter
