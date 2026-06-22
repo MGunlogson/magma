@@ -1052,18 +1052,18 @@ if (inj_retract)
 
 Small values (0.05mm) work with nozzles that have a wide flat tip. Nozzles with a narrow flat and tapered tip may need deeper values (0.5-1.0mm) so the taper widens enough to seal the tube opening. The slam/lift moves use the printer's Z travel speed (`travel_speed_z`, firmware-capped) rather than a hardcoded feedrate, so the nozzle does not linger on the hot tube top.
 
-**Auto Z-slam depth from nozzle cone geometry.** Choosing this depth by hand requires reasoning about the nozzle's tip flat and the cone above it. When `magma_injection_z_slam_auto` is enabled, the depth is instead derived from geometry. A standard nozzle tip is a flat ring of diameter `flat` (the measured `magma_nozzle_outer_diameter`, "Nozzle tip flat") with a cone of half-angle `theta` (`magma_nozzle_cone_half_angle`, default 30 degrees) widening above it. To seal a tube opening of diameter `opening`, the nozzle must descend until the cone has widened from `flat` to `opening`. Each unit of descent widens the cone by `2 * tan(theta)`, giving:
+**Auto Z-slam depth from nozzle cone geometry.** Choosing this depth by hand requires reasoning about the nozzle's tip flat and the cone above it. When `magma_injection_z_slam_auto` is enabled, the depth is instead derived from geometry. A standard nozzle tip is a flat ring of diameter `flat` (the measured `magma_nozzle_outer_diameter`, "Nozzle tip flat") with a cone of half-angle `theta` (`magma_nozzle_cone_half_angle`, default 30 degrees) widening above it. To seal a tube opening of diameter `opening`, the nozzle must descend until the cone has widened from `flat` to `opening` plus a small seal margin (0.1mm, so the cone clears the opening rather than just grazing it and so the auto depth satisfies the seal-prediction check). Each unit of descent widens the cone by `2 * tan(theta)`, giving:
 
 ```
 // src/libslic3r/Magma/MagmaInjection.cpp
 double opening   = tube_map.tube_opening_diameter();          // inscribed opening of the inset triangle
 double flat      = nozzle_flat > 0 ? nozzle_flat : 3.0 * nozzle_diameter;
 double theta_rad = magma_nozzle_cone_half_angle * PI / 180.0;
-double slam_depth = std::max(0.1, (opening - flat) / (2.0 * std::tan(theta_rad)));
+double slam_depth = std::max(0.1, (opening + 0.1 - flat) / (2.0 * std::tan(theta_rad)));  // +0.1mm seal margin
 slam_depth = std::min(slam_depth, 3.5);                       // shared clamp
 ```
 
-When the flat already covers the opening (`flat >= opening`) the numerator is non-positive and the depth floors at a minimal 0.1mm press for a clean seal. A pointier cone (smaller `theta`) requires a deeper slam for the same opening; a wider flat requires less. This makes the seal depth track tube size and nozzle automatically, and is what allows tubes intentionally sized larger than the flat (Manual tube width) to still seal. When auto mode is on, the manual `magma_injection_z_slam` field is ignored (and hidden in the UI).
+When the flat already covers the opening with margin (`flat >= opening + margin`) the numerator is non-positive and the depth floors at a minimal 0.1mm press for a clean seal. A pointier cone (smaller `theta`) requires a deeper slam for the same opening; a wider flat requires less. This makes the seal depth track tube size and nozzle automatically, and is what allows tubes intentionally sized larger than the flat (Manual tube width) to still seal. When auto mode is on, the manual `magma_injection_z_slam` field is ignored (and hidden in the UI).
 
 **Progressive plunge ("slam-melt").** A single fixed seal depth can fail mid-injection: as channel pressure rises, plastic finds the lateral gap at the seal and mushrooms out around the nozzle instead of flowing down the tube. The plunge ramps the nozzle deeper *while injecting* — the extrusion is split into segments and the Z is stepped down between them from `slam_depth` to `slam_depth + plunge_depth` over the course of the injection, so the hot tip keeps sinking into the softening tube top and holds the seal shut as it fills:
 

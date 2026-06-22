@@ -66,7 +66,7 @@ Injection runs as the print climbs, not all at the end. At the right height the 
 
 ### Sealing depth (z-slam)
 
-The seal happens because the nozzle tip flat (and the cone above it) covers the tube opening when pressed down. A wide flat that already covers the opening only needs a token press; a narrow flat on a tapered tip has to go deeper so the widening cone reaches the opening width. Rather than guess, **Auto Z-slam** computes the depth from geometry — the tube opening, the measured tip flat, and the nozzle cone half-angle: `z_slam = max(0.1, (opening - flat) / (2 * tan(angle)))`. Turn it on and it tracks whatever tube size and nozzle you are running; leave it off to dial the depth in by hand.
+The seal happens because the nozzle tip flat (and the cone above it) covers the tube opening when pressed down. A wide flat that already covers the opening only needs a token press; a narrow flat on a tapered tip has to go deeper so the widening cone reaches the opening width. Rather than guess, **Auto Z-slam** computes the depth from geometry — the tube opening, the measured tip flat, and the nozzle cone half-angle: `z_slam = max(0.1, (opening + margin - flat) / (2 * tan(angle)))`, where `margin` is a small seal margin (0.1mm) so the cone clears the opening with room to spare rather than just grazing it. Turn it on and it tracks whatever tube size and nozzle you are running; leave it off to dial the depth in by hand.
 
 ### Plunge (slam-melt)
 
