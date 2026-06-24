@@ -2,7 +2,7 @@
 
 Inject molten plastic into your prints to knit the layers together.
 
-Magma is a fork of [OrcaSlicer](https://github.com/SoftFever/OrcaSlicer). It adds a triangle-like infill type that builds sealed vertical U-shaped channels inside your part, then injects plastic into them mid-print using the printer's nozzle. The goal is to fix FDM Z layer weakness by truly printing in 3D.
+Magma is a fork of [OrcaSlicer](https://github.com/SoftFever/OrcaSlicer). It adds new infill types (Triangle, Rectilinear, and Tri-hex cells) that build sealed vertical U-shaped channels inside your part, then injects plastic into them mid-print using the printer's nozzle. The goal is to fix FDM Z layer weakness by truly printing in 3D.
 
 ![Mid-print injection in the GCode preview](assets/screenshots/04-injection-paths.png)
 
@@ -16,7 +16,7 @@ FDM parts are strong in XY and weak in Z. Bonding weakness on the layer lines re
 
 ## How it works
 
-Magma replaces normal infill with a triangle lattice of hollow channels. A solver pairs each channel with one of its shared-edge neighbors and cuts a small window between them at the bottom, making a vertical U. During the print, the nozzle drops into one side of the U, injects plastic under pressure, and it flows down, through the window, and up the other side. Air escapes out the top. It is a tiny version of injection molding. With tubes injected as they reach their computed height during the print.
+Magma replaces normal infill with a lattice of hollow channels — cells can be triangles, squares, or a hexagon-and-triangle mix, depending on which Magma pattern you pick. A solver pairs each channel with one of its shared-edge neighbors and cuts a small window between them at the bottom, making a vertical U. During the print, the nozzle drops into one side of the U, injects plastic under pressure, and it flows down, through the window, and up the other side. Air escapes out the top. It is a tiny version of injection molding. With tubes injected as they reach their computed height during the print.
 
 
 ```
@@ -86,7 +86,7 @@ Starting settings (guesses, none have given a totally clean print yet):
 
 | Setting | Value |
 |---|---|
-| Sparse infill pattern | Magma Triangle |
+| Sparse infill pattern | Magma Triangle (or Magma Rectilinear / Magma Tri-hex) |
 | `dual_infill_enabled` | on |
 | Inner zone infill | Lightning (the inner zone just supports the top, so use the least material) |
 | `magma_tube_height` | ~4.5 to 6 mm |
