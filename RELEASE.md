@@ -16,13 +16,28 @@ status of the physical printing side, see the [project README](README.md).
 
 ### Core: Magma Infill System
 
-- **Triangle cell infill pattern** (`ipMagmaTriangle`) — equilateral triangle
-  lattice using (a,b,c) integer coordinates. Three families of parallel lines
-  (0/60/120 degrees) form sealed triangular channels. This is a modification of the traditional triangle infill pattern.
+- **Three selectable infill patterns** — all share one tube-assignment solver,
+  injection pipeline, and preview, via a per-shape geometry/lattice strategy
+  (`MagmaGeometry` / `MagmaLattice`). Pick one as `Sparse infill pattern` (or as the
+  dual-zone outer pattern):
+  - **Magma Triangle** (`ipMagmaTriangle`) — equilateral-triangle lattice on (a,b,c)
+    integer coordinates; three families of parallel lines (0/60/120°) form sealed
+    triangular channels. Packs the most tubes per unit area, so it is the default. A
+    modification of the traditional triangle infill pattern.
+  - **Magma Rectilinear** (`ipMagmaRectilinear`) — square cells from two perpendicular
+    line families (0/90°). Seals more easily (circumscribed/inscribed ratio √2 ≈ 1.41 vs
+    the triangle's 2.0) and prints faster (2 straight families instead of 3), at fewer
+    tubes per unit area. See [DESIGN-RECTILINEAR.md](DESIGN-RECTILINEAR.md).
+  - **Magma Tri-hex** (`ipMagmaTriHex`) — hexagon hub cells with triangle vent cells
+    filling the gaps (trihexagonal / Kagome tiling). One injection fills a *manifold*: a
+    hub plus several equal-length vent legs (not just a pairwise U-tube). See
+    [DESIGN-TRIHEX.md](DESIGN-TRIHEX.md).
 
-- **U-tube pair assignment** — adjacent cells are paired and connected by window
-  gaps at their shared wall. Plastic is injected down one cell and rises up
-  through the partner, forming interlocking U-shaped reinforcement columns.
+- **U-tube / manifold assignment** — adjacent cells are joined by window gaps at their
+  shared wall. Plastic is injected down one cell and rises up through the partner(s),
+  forming interlocking reinforcement columns. Triangle and Rectilinear pair two cells (a
+  U-tube); Tri-hex generalizes this to a hub + N vent legs (the U-tube is the degenerate
+  1-leg case).
 
 - **Two-stage tube solver** —
   - *Stage 1 (Greedy):* Most-constrained-first heuristic assigns tubes in
@@ -41,20 +56,34 @@ status of the physical printing side, see the [project README](README.md).
   three physical constraints (line overlap, tube area overlap, helix angle).
 
 - **Auto tube sizing** — derives tube interior width from the measured nozzle tip
-  flat (`magma_nozzle_outer_diameter`, labelled "Nozzle tip flat") using
-  circumscribed circle geometry, ensuring the nozzle flat covers all three triangle
-  vertices during Z-slam injection.
+  flat (`magma_nozzle_outer_diameter`, labelled "Nozzle tip flat") using the per-shape
+  circumscribed-circle geometry (triangle: `od/(2/√3)`; square: `od/√2`; tri-hex hub:
+  `od·√3/2`), ensuring the nozzle flat covers the opening during Z-slam injection.
 
-- **Constriction detection** — when a cell's cross-sectional area drops below 30%
-  between adjacent layers (geometry pinch points), the cell is split into separate
-  spans so tubes cannot bridge across near-discontinuities.
+- **Dual cell-presence gate** — a cell becomes an injectable tube cell on a layer only
+  when BOTH (a) its boundary-clipped interior area is ≥ 70% of the ideal cell area AND
+  (b) the injection point keeps at least the nozzle-flat radius of clearance to the
+  nearest opening boundary. The area test bounds how much survives clipping; the
+  clearance test (at the actual injection point) rejects spikes/pinches the area test
+  alone would pass. This unified per-layer gate supersedes the old separate
+  constriction-detection pass, and admitted partial cells are dosed proportionally from
+  each layer's actual clipped area.
+
+- **Clipped-cavity centroid injection** — the nozzle aims at the centroid of the cell's
+  actual (boundary-clipped) opening at the cap layer, not the ideal lattice centre. For a
+  regular polygon the centroid is the inscribed-circle centre, so clipped cells inject at
+  the point of greatest clearance from the wall (falling back to the lattice centre if a
+  concave clip pushes the centroid outside the opening).
 
 - **Auto window height** — when set to 0 (default), the window gap height is the
-  geometric value (window cross-section = tube interior) plus one layer height,
-  so the opening reliably spans a full printed layer.
+  geometric value (window flow cross-section = tube interior) plus one layer height, so
+  the opening reliably spans a full printed layer. Tri-hex sizes the window from the
+  *vent* triangle (the window feeds only the adjacent vent, not the larger hub) with a
+  1.0 mm floor.
 
 - **Per-layer volume computation** — injection volumes account for variable layer
-  heights, window gap volume, and triangle vertex overlap excess subtraction.
+  heights, window gap volume, and per-shape vertex-overlap excess subtraction (triangle
+  `3√3·lw²/4`, square `lw²`, tri-hex `2·lw²/√3`).
 
 ### Core: Dual-Zone Infill Architecture
 
@@ -199,10 +228,11 @@ status of the physical printing side, see the [project README](README.md).
   while preserving thick regions. Distinct from the existing area-based filter.
   Auto threshold = 2x nozzle diameter.
 
-- **Triangle vertex overlap correction** — at 60-degree line crossings, material
-  is deposited twice. Both infill flow and injection volume are corrected:
-  line width is reduced (floored at `magma_overlap_min_width`, default 90% of
-  nozzle diameter), excess area subtracted from tube volume calculations.
+- **Vertex overlap correction** — where line families cross (triangle 60°, square 90°,
+  tri-hex Kagome vertices) material is deposited twice. Both infill flow and injection
+  volume are corrected per shape: line width is reduced (floored at
+  `magma_overlap_min_width`, default 90% of nozzle diameter), excess area subtracted from
+  tube volume calculations.
 
 - **Bridge detection zone-awareness** — zone outer infill is treated as solid
   support for bridges; unfilled cells (no tube coverage) are subtracted so
@@ -213,7 +243,7 @@ status of the physical printing side, see the [project README](README.md).
   calculation.
 
 - **UI tidying** — irrelevant infill settings (density, direction, rotation,
-  anchoring) are hidden when Magma Triangle pattern is selected.
+  anchoring) are hidden when any Magma pattern is selected.
 
 - **Zone role acceleration/jerk/flow** — zone shell inherits inner wall settings;
   zone outer infill inherits sparse infill settings; zone floor/ceiling inherit
@@ -259,15 +289,21 @@ Magma and the dual-zone system add 50 settings: 45 for Magma and dual-infill, pl
 ```
 src/libslic3r/
 ├── Magma/
-│   ├── MagmaTriangleCell.hpp/.cpp    — (a,b,c) lattice coordinates, geometry
+│   ├── MagmaGeometry.hpp             — Per-shape geometry strategy interface
+│   ├── MagmaLattice.hpp              — Per-shape lattice (topology/coords) interface
+│   ├── MagmaCell.hpp                 — CellId (a,b,c,kind) shared by all patterns
+│   ├── MagmaPatterns.hpp             — Pattern → geometry/lattice factory selectors
+│   ├── MagmaTriangleCell.hpp/.cpp    — Triangle geometry + lattice
+│   ├── MagmaRectilinearCell.hpp      — Square geometry + lattice
+│   ├── MagmaTriHexCell.hpp           — Tri-hex (hub/vent) geometry + lattice
 │   ├── MagmaSpiralOffset.hpp/.cpp    — Per-layer helical offset computation
-│   ├── MagmaTubeMap.hpp/.cpp         — Cell presence, tube pairs, volumes, windows
+│   ├── MagmaTubeMap.hpp/.cpp         — Cell presence, tube pairs/manifolds, volumes, windows
 │   ├── MagmaGreedyWarmStart.hpp/.cpp — Most-constrained-first tube assignment
 │   ├── MagmaTubeSolver.hpp/.cpp      — CP-SAT interval scheduling optimizer
 │   ├── MagmaInjection.hpp/.cpp       — Injection G-code, visualization, parking
 │   └── MagmaInjectionOrder.hpp/.cpp  — Per-layer "spread heat" injection ordering
 ├── Fill/
-│   └── FillMagma.hpp/.cpp            — Triangle grid infill with window gaps
+│   └── FillMagma.hpp/.cpp            — FillMagma{Triangle,Rectilinear,TriHex} toolpaths
 ├── ZoneBoundary/
 │   └── ZoneInterior.hpp/.cpp         — OpenVDB smoothing, thin section filtering
 └── GCode/
@@ -320,6 +356,10 @@ src/libslic3r/
 
 - [DESIGN-TUBE-SOLVER.md](DESIGN-TUBE-SOLVER.md) — Two-stage tube assignment
   algorithm (greedy + CP-SAT)
+- [DESIGN-RECTILINEAR.md](DESIGN-RECTILINEAR.md) — Rectilinear (square) pattern
+  lattice, geometry, and window placement
+- [DESIGN-TRIHEX.md](DESIGN-TRIHEX.md) — Tri-hex manifold pattern: trihexagonal
+  lattice, hub/vent injection model, extra-vent sweep
 - [DEFENSIVE_PUBLICATION.md](DEFENSIVE_PUBLICATION.md) — Public domain
   disclosure establishing prior art (CC0 1.0)
 

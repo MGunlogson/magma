@@ -4,7 +4,7 @@ render_with_liquid: false
 
 # Defensive Publication: Magma Vertical Reinforcement Infill System for FDM 3D Printing
 
-**Publication Date:** February 9, 2026 (Updated March 16, 2026)
+**Publication Date:** February 9, 2026 (Updated March 16, 2026; June 23, 2026)
 
 **Authors:** Mark Gunlogson
 
@@ -14,7 +14,7 @@ render_with_liquid: false
 
 ## 1. Abstract
 
-This defensive publication discloses a complete software system for vertical reinforcement of Fused Deposition Modeling (FDM) 3D printed parts. The system, named Magma, modifies open-source slicer software (OrcaSlicer) to generate a triangular lattice infill pattern containing hollow channels (tubes) that are filled with injected molten plastic **during printing on a per-layer basis** -- not as a post-print operation. The injection occurs as a dedicated print stage within each layer's processing, using the printer's existing extruder at elevated temperature.
+This defensive publication discloses a complete software system for vertical reinforcement of Fused Deposition Modeling (FDM) 3D printed parts. The system, named Magma, modifies open-source slicer software (OrcaSlicer) to generate a user-selectable lattice infill pattern -- triangular, rectilinear (square), or tri-hex (hexagon + triangle) -- containing hollow channels (tubes) that are filled with injected molten plastic **during printing on a per-layer basis** -- not as a post-print operation. The injection occurs as a dedicated print stage within each layer's processing, using the printer's existing extruder at elevated temperature.
 
 The system requires **no hardware modifications** to standard FDM printers. It is implemented entirely as software modifications to the slicer's infill generation, G-code output, and preview rendering subsystems.
 
@@ -36,13 +36,21 @@ Key technical innovations disclosed herein include:
 
 8. A 5-tier safe park positioning system that finds optimal nozzle positions during injection temperature changes by classifying print surface regions (empty > support > sparse infill > solid infill > z-hop only).
 
-9. An automatic Z-slam sealing-depth model derived from nozzle cone geometry, in which the press-down depth is computed from the tube opening, the nozzle tip flat diameter, and the nozzle cone half-angle as `depth = max(epsilon, (opening - flat) / (2 * tan(half_angle)))`, so the widening cone above the tip flat reaches the opening width and seals tubes larger than the flat without manual tuning.
+9. An automatic, **per-tube** Z-slam sealing-depth model derived from nozzle cone geometry, in which each tube's press-down depth is computed from that tube's ACTUAL opening at its cap layer (the farthest point of the clipped opening from the injection point), the nozzle tip flat diameter, and the nozzle cone half-angle as `depth = max(epsilon, (opening + margin - flat) / (2 * tan(half_angle)))`, so the widening cone above the tip flat reaches each individual opening's width and seals it without manual tuning. Because the depth is derived per tube from the real (possibly boundary-clipped) opening rather than a single global ideal, smaller boundary openings receive a correspondingly shallower, non-over-pressed slam.
 
 10. A global, per-print-layer thermal-aware injection ordering that, across all objects and instances on a layer, separates spatially-near injections in time to prevent combined heat from re-melting neighbouring cells. It is driven by a continuous decay field in which every prior injection is a heat source fading in both time and space (`exp(-dt/tau) * exp(-dist/lambda)`), built by a dispersion greedy that injects wherever is currently coolest-on-arrival and refined by a violation-directed local search; because `dt` is real elapsed injection time, inter-injection travel counts as cooling rather than opposing the spread. The solved order is cached in a dedicated slicing stage. (An equivalent exact CP-SAT routing formulation of the same objective was also implemented, measured, and is disclosed in Section 6.h as an alternative.)
 
 11. A progressive-plunge ("slam-melt") injection in which the sealing nozzle is ramped deeper into the tube top *during* extrusion, from the geometric seal depth to that depth plus a configured plunge, so the hot tip continuously sinks into the softening surface and maintains the seal under the rising channel pressure -- driving plastic down the tube instead of letting it escape laterally around the nozzle -- while the extrusion holds its commanded volumetric rate.
 
 12. A neighbour-aware crater-ironing finishing move that, after each injection, spirals the nozzle inward over the injection point so the angled nozzle cone plows the displaced rim back into the crater (deflecting material both inward and downward by the cone-normal geometry) and irons it flat while scraping the nozzle clean; the nozzle hovers above layer height over neighbouring cells and only descends to press inside a geometrically-derived radius that keeps the flat clear of any neighbouring tube opening's far vertex, guaranteeing a neighbour's air-escape hole is never sealed.
+
+13. A shape-generic lattice and geometry abstraction in which the tube grid, neighbour pairing, window placement, opening size, cell-area/volume, and injection geometry are all expressed through a per-shape strategy interface, so multiple infill patterns -- triangular (equilateral cells), rectilinear (square cells), and tri-hex (hexagon + triangle cells) -- share a single tube-assignment solver, injection pipeline, and preview-rendering pipeline. Tri-hex additionally uses vent-based injection allocation (a single injection serving multiple connected vents) rather than only pairwise U-tube coupling. Any pattern may also serve as the outer-zone fill in the dual-zone architecture.
+
+14. A dual cell-presence gate that admits a cell as a tube cell on a given layer only when BOTH (a) its clipped interior area is at least a fixed fraction (70%) of the ideal cell area AND (b) the injection point retains at least the nozzle-flat radius of clearance to the nearest opening boundary. The area test bounds how much of the cross-section survives clipping; the clearance test -- evaluated at the actual injection point -- rejects shapes where a spike or pinch intrudes toward the centre (which the area test alone would pass), guaranteeing the nozzle flat can seat. This unified per-layer gate supersedes a separate constriction-detection pass, and because injection volume is computed from each layer's actual clipped area, admitted partial cells are dosed proportionally.
+
+15. A clipped-cavity centroid injection point, in which the nozzle aims not at the ideal lattice cell centre but at the centroid of the cell's actual (boundary-clipped) opening at the cap layer. For a regular polygon the centroid coincides with the inscribed-circle centre, so boundary-clipped cells inject at the point of greatest clearance from the part wall instead of at a centre that may sit near or past the clip -- maximizing seal reliability -- and it falls back to the lattice centre if a concave clip places the centroid outside the opening.
+
+16. A one-to-many ("manifold") injection unit and its vent-fill allocation, in which a single injection fills a hub cell plus multiple **equal-length** vent legs -- windows pinned to the hub-tube's bottom so every leg spans the hub-tube's layer range -- and a per-vent allocation maximizes filled volume by: (a) forming an unavailable-layer mask per vent = layers absent due to part geometry UNION layers already committed to other injections; (b) discarding any candidate hub-tube whose layer range crosses that mask (which would trap injected air); and (c) within each remaining present-run, selecting by weighted interval scheduling over the contained hub-tube ranges the non-overlapping set of tubes that fills the most layers, tie-broken toward the least-loaded hub. Each vent layer is filled exactly once and hubs are uncapped, so the allocation is independent per vent and yields the maximal fill achievable with windows aligned to real tube boundaries. The pairwise U-tube is the degenerate single-leg case.
 
 All algorithms, code, and structures described in this document are dedicated to the public domain to establish prior art and prevent patenting by third parties.
 
@@ -52,15 +60,15 @@ All algorithms, code, and structures described in this document are dedicated to
 
 ### 2.1 Magma Tubes
 
-Hollow channels formed within the triangular lattice infill pattern. Each tube is defined by a single triangular cell's interior space, bounded by the infill line walls on three sides and by the layers above and below. The interior cross-section is an equilateral triangle with side length equal to the cell's interior width (auto-calculated from nozzle geometry, or user-specified). Tubes span multiple layers vertically and are filled with injected plastic during printing.
+Hollow channels formed within the selected Magma lattice infill pattern. Each tube is defined by a single lattice cell's interior space, bounded by the infill line walls and by the layers above and below. The interior cross-section depends on the chosen pattern -- an equilateral triangle (Magma Triangle), a square (Magma Rectilinear), or a hexagon or triangle (Magma Tri-hex) -- sized by the cell's interior width (auto-calculated from nozzle geometry, or user-specified). Tubes span multiple layers vertically and are filled with injected plastic during printing.
 
 ### 2.2 Windows (Fenestrations)
 
-Gaps intentionally left in the shared infill walls between two adjacent triangular cells. A window is created by omitting a segment of the infill line that forms the shared edge between two cells, for a specified number of layers (the window height). Windows connect paired tubes to form U-tube pairs, allowing injected plastic to flow from one cell down through the window into the adjacent cell.
+Gaps intentionally left in the shared infill walls between two adjacent cells. A window is created by omitting a segment of the infill line that forms the shared edge between two cells, for a specified number of layers (the window height). Windows connect paired tubes to form U-tube pairs, allowing injected plastic to flow from one cell down through the window into the adjacent cell.
 
 ### 2.3 U-tube Pairs
 
-Two adjacent triangular cells connected by a window at their shared edge. Plastic is injected into one cell (cell_a, the injection side) at the top of the tube, flows down through the tube, crosses through the window into the adjacent cell (cell_b, the vent side), and rises up. The resulting solidified plastic forms a U-shaped interlocking reinforcement column. Each U-tube pair has a defined start layer (bottom), end layer (top/cap), and injection volume.
+Two adjacent cells connected by a window at their shared edge. Plastic is injected into one cell (cell_a, the injection side) at the top of the tube, flows down through the tube, crosses through the window into the adjacent cell (cell_b, the vent side), and rises up. The resulting solidified plastic forms a U-shaped interlocking reinforcement column. Each U-tube pair has a defined start layer (bottom), end layer (top/cap), and injection volume.
 
 ### 2.4 Stagger Levels
 
@@ -296,7 +304,9 @@ Lattices are pre-built per layer during `build()` and cached in `m_layer_data[la
 
 The reference lattice (zero offset) is used to enumerate cells and assign (a,b,c) coordinates. The layer lattice (with spiral offset) is used for geometric checks: is the cell center inside the model boundary? What is the cell's area after clipping to the model? This dual-lattice approach ensures that tube assignments are stable while geometric computations reflect the actual per-layer positions.
 
-### 3.e Two-Tier Constriction Detection
+### 3.e Two-Tier Constriction Detection (superseded by the dual presence gate)
+
+**Historical note:** the standalone two-tier constriction-detection pass below has been **superseded by the dual cell-presence gate** (Section 1, claim 14, and Section 3.f). A cell now counts as present on a layer only if its clipped area is at least 70% of the ideal cell area AND the injection point keeps at least the nozzle-flat radius of clearance to the nearest opening boundary. Because that per-layer gate already excludes any under-area or pinched layer from a cell's presence, no separate constriction pass is run. The original algorithm is retained here for prior art.
 
 Constriction detection identifies layers where a cell's usable area drops sharply, indicating a geometric pinch point (e.g., where a model narrows) that would block injection flow. A tube should not bridge across such a constriction.
 
@@ -387,7 +397,7 @@ for (const TriangleCell &cell : cells) {
 }
 ```
 
-Interior cells (center inside the inset region by half the interior width) use the precomputed ideal triangle area, avoiding polygon clipping entirely. Boundary cells undergo exact polygon intersection to determine their actual usable area, with a 90% minimum area threshold to reject cells too constricted for plastic flow.
+Interior cells (center inside the inset region by half the interior width) use the precomputed ideal cell area, avoiding polygon clipping entirely. Boundary cells undergo exact polygon intersection to determine their actual usable area. A cell is admitted on a layer only if that area is at least **70%** of the ideal cell area AND the injection point retains at least the nozzle-flat radius of clearance to the nearest opening boundary (the dual presence gate of claim 14): the area term rejects cells too clipped to hold a useful tube, while the clearance term rejects spikes or pinches intruding toward the injection point that the area term alone would pass. Injection volume is then computed from each layer's actual clipped area, so an admitted partial cell is dosed proportionally.
 
 ### 3.g Adaptive Layer Height Support
 
@@ -1462,9 +1472,9 @@ The algorithm is: erode the SDF to find a thick core (regions where the interior
 
 ---
 
-## 10. DESIGNED BUT NOT IMPLEMENTED
+## 10. DESIGNED (SOME SINCE IMPLEMENTED)
 
-**Implementation status: These features were designed with detailed specifications but removed from the current release for the stated reasons. They are disclosed here for defensive publication purposes to establish prior art.**
+**Implementation status: These features were designed with detailed specifications. Several have since been implemented and are marked inline — Whirl Seal → Crater Ironing (9.c), Stagger-Level Ordering → thermal-aware ordering (9.d), Hexagonal → Magma Tri-hex (9.b), and Rectilinear (Grid) → Magma Rectilinear (9.f). The remainder (9.a Corner Width Optimization, 9.e Coupled Thermal-Pressure Depth Model) were not implemented for the stated reasons. All are disclosed here for defensive publication purposes to establish prior art.**
 
 ### 9.a Corner Width Optimization
 
@@ -1472,11 +1482,23 @@ The algorithm is: erode the SDF to find a thick core (regions where the interior
 
 **Reason for removal:** At Magma cell scales (approximately 1.27mm edge length with a 0.4mm nozzle), width transitions occur in approximately 4.4ms at 100mm/s print speed. However, extruder pressure advance response time is 20-60ms for direct drive extruders. The extruder cannot track flow changes fast enough for the feature to produce meaningful results at these scales. The design is sound for larger cell sizes but impractical for the current target geometry.
 
-### 9.b Hexagonal Infill Pattern
+### 9.b Hexagonal / Tri-hex Infill Pattern
 
-**Design:** A modified honeycomb pattern with 6 neighbors per cell, 120-degree corners, adapted for Magma tube formation. Each hexagonal cell would have 6 potential pairing partners, with window placement on any of the 6 shared edges.
+**Status update: IMPLEMENTED as Magma Tri-hex.** The pure-hexagon lattice below was the original design; it now ships as **Magma Tri-hex**, a hybrid lattice of hexagonal cells plus the triangular cells that tile the gaps between them. Tri-hex uses **vent-based injection allocation** (a single injection serving multiple connected vents) rather than only pairwise U-tube coupling, and runs on the shared per-shape lattice/solver/injection pipeline (claim 13). Mixing triangular cells between the hexagons recovers the triangular pattern's continuous line families while keeping the hexagonal cells' multi-neighbour pairing. The original pure-hex design is retained below for prior art.
 
-**Reason for removal:** Significantly slower to print than the triangular pattern due to more direction changes per unit area. The triangular pattern produces 3 sets of parallel lines (0, 60, 120 degrees), each of which can be printed in a single continuous sweep. The hexagonal pattern requires 6 direction changes per cell perimeter, producing shorter line segments and more travel moves. Additionally, the triangular pattern produces more reinforcing tubes per unit area than the hexagonal pattern for the same cell spacing.
+**How it works (Magma Tri-hex):**
+
+- *Lattice and toolpath.* A trihexagonal tiling: hexagon cells (hubs) with up/down triangle cells filling the gaps. It is bipartite -- a hex borders only triangles (6), a triangle borders only hexes (3), in a 2:1 triangle:hex ratio. The trihexagonal tiling is the *rectified* triangular grid, so its walls are exactly the triangular pattern's three straight line families (0/60/120 degrees) shifted by one-half lattice index in each family. The toolpath is therefore generated by the SAME single-wall line generator as the triangular pattern -- three families of full straight lines, clipped to the region and chained per direction into continuous sweeps -- with each open hub<->vent window cut as a gap on whichever family carries that shared wall. The one-half-index shift is precisely what opens the hollow hexagons: at the shifted positions no line of any family passes through a hub vertex (integer index) or a vent centroid (thirds), so the hub and vent interiors stay open tubes while every wall lies on exactly one family. This discloses generating a trihexagonal vertical-reinforcement infill as three rectified (half-shifted) straight line families with per-family window interruptions.
+
+- *Manifold injection unit.* One injection fills a **manifold**: a hub cell over a layer range [start, cap] plus N **vent legs**, each a triangle cell spanning the SAME [start, cap]. Windows are pinned to the tube bottom, so all legs are equal length; plastic enters each leg at the bottom window, fills up to the cap, and air escapes at the cap (the print surface at injection time). The two-cell U-tube is the degenerate one-leg manifold.
+
+- *Hub scheduling (reuses the existing solver unchanged).* The bipartite hub<->vent adjacency is fed to the same tube-assignment solver (Section 5); ordinary per-cell exclusivity yields a hub<->vent matching that gives every hub-tube exactly one **primary** leg -- which both schedules the hub-tube's range, stagger, and height and guarantees the hub can inject (air escape).
+
+- *Vent-fill allocation (maximize filled volume).* A second per-vent pass adds further legs to maximize total filled vent volume. For each vent it forms an "unavailable" layer mask -- the union of layers where the vent cell is absent due to part geometry AND layers already claimed by the primary matching -- and discards any candidate hub-tube whose [start, cap] crosses that mask (a block or prior claim inside the range would trap injected air). The surviving layers split the vent into present-runs; within each run it selects, by weighted interval scheduling over the fully-contained hub-tube ranges, the non-overlapping set covering the most layers (tie-broken toward the least-loaded hub for even distribution), and attaches the vent to those tubes as extra legs. Because hubs are uncapped and each vent layer is filled exactly once, the passes are independent per vent and yield the maximal vent fill achievable with windows aligned to real tube bottoms.
+
+**Design (original pure-hex):** A modified honeycomb pattern with 6 neighbors per cell, 120-degree corners, adapted for Magma tube formation. Each hexagonal cell would have 6 potential pairing partners, with window placement on any of the 6 shared edges.
+
+**Original trade-off (motivating the hybrid form):** A pure-hexagon lattice prints more slowly than the triangular pattern due to more direction changes per unit area -- the triangular pattern produces 3 sets of parallel lines (0, 60, 120 degrees), each printable in a single continuous sweep, whereas a hexagon perimeter requires more direction changes and shorter segments. The tri-hex form mixes triangular cells between hexagons to recover continuous sweeps.
 
 ### 9.c Whirl Seal Move (superseded by implemented Crater Ironing)
 
@@ -1541,11 +1563,13 @@ max_depth      = min(depth_thermal, depth_pressure)
 
 ### 9.f Rectilinear (Grid) Infill Pattern
 
+**Status update: IMPLEMENTED as Magma Rectilinear.** Now shipping as a selectable pattern (square cells, two perpendicular single-wall line families, a window omitted from a shared edge). The original design and trade-off discussion below are retained for prior art.
+
 **Design:** A grid lattice in which two families of parallel infill lines at 0 and 90 degrees form square (or, with unequal spacing, rectangular) cells. Each cell is a vertical channel with a square cross-section. As with the triangular pattern, cell spacing is derived from the nozzle and interior-width geometry, each cell is paired with an orthogonally adjacent neighbor sharing a wall, and a window gap omitted from the shared wall connects the pair into a U-tube. Stagger levels, spiral interlock, and per-layer volume computation apply directly, substituting the square-cell geometry (cross-section `iw^2`, perimeter `4 * iw`, hydraulic diameter `iw`) into the same formulas. A 45-degree-rotated variant produces diamond cells with injection holes offset between layers.
 
 **Advantages:** The two line families are long, continuous, orthogonal sweeps that print quickly with minimal direction changes (matching the speed characteristics of standard rectilinear/grid infill). The square cross-section presents a large flat sealing area and is straightforward to model and size.
 
-**Reason not implemented:** Square cells have 90-degree interior corners, which give poorer injection flow and are harder for a round nozzle to seal than the 120-degree corners of the triangular pattern. For equal wall material, the grid produces fewer reinforcing tubes per unit area than the triangular lattice, and window placement is limited to the 4 cell edges. The triangular pattern was prioritized for the initial release because its 60-degree line families pack more tubes per unit area and print in three continuous sweeps.
+**Trade-offs vs. triangle:** Square cells have 90-degree interior corners, which give somewhat poorer injection flow and are a little harder for a round nozzle to seal than the 120-degree corners of the triangular pattern; for equal wall material the grid produces fewer reinforcing tubes per unit area, and window placement is limited to the 4 cell edges. The triangular pattern remains the default for those reasons, but rectilinear is offered as an option where its long, continuous orthogonal sweeps and large flat sealing face are preferred.
 
 **Prior art scope:** This disclosure establishes prior art for square-, rectangular-, and diamond-cross-section channel variants of the Magma tube system, including orthogonal grid cell pairing, window placement on grid cell edges, and the application of stagger, spiral interlock, and volume computation to grid-based Magma channels.
 
@@ -1643,7 +1667,7 @@ Full text of the CC0 dedication: https://creativecommons.org/publicdomain/zero/1
 
 This document serves as a **Defensive Publication**. All concepts, methods, algorithms, code, and structures described herein are disclosed to the public to establish **Prior Art**, preventing the patenting of these ideas by third parties. This work is dedicated to the Public Domain under the Creative Commons CC0 1.0 Universal dedication.
 
-The original publication date of **February 9, 2026** establishes the priority date for Sections 1-4, 6-12. The update date of **March 16, 2026** establishes the priority date for Section 5 (Optimized Tube Assignment). Any patent application filed after this date covering substantially similar subject matter is anticipated by this disclosure.
+The original publication date of **February 9, 2026** establishes the priority date for Sections 1-4, 6-12. The update date of **March 16, 2026** establishes the priority date for Section 5 (Optimized Tube Assignment). The update date of **June 23, 2026** establishes the priority date for the multi-pattern lattice abstraction (Magma Rectilinear and Magma Tri-hex), the dual cell-presence gate, the per-tube actual-opening Z-slam sealing model, and the clipped-cavity centroid injection point (novel claims 13-15). Any patent application filed after the applicable date covering substantially similar subject matter is anticipated by this disclosure.
 
 The disclosed system encompasses, but is not limited to:
 
@@ -1692,6 +1716,11 @@ The disclosed system encompasses, but is not limited to:
 43. Per-cell consumed-interval tracking with binary search overlap detection
 44. Five-tier safe park positioning for injection temperature changes
 45. Parallel-transported frame computation for near-vertical GCode preview rendering
+46. Square (rectilinear) and tri-hex (hexagon + triangle) Magma lattice patterns, and a shape-generic per-shape geometry/lattice abstraction sharing one solver, injection, and rendering pipeline across patterns
+47. Vent-based injection allocation (a single injection serving multiple connected vents) for mixed hexagon/triangle lattices
+48. Dual cell-presence gating combining a minimum clipped-area fraction with a minimum injection-point clearance to the opening boundary
+49. Per-tube injection sealing depth computed from each tube's actual (boundary-clipped) opening rather than a single global ideal
+50. Clipped-cavity centroid injection-point selection (inscribed-circle centre for regular cells) for boundary-clipped cells
 
 ### Source Code Availability
 
@@ -1711,7 +1740,7 @@ The complete source code implementing the IMPLEMENTED portions of this disclosur
     "@type": "Organization",
     "name": "Magma Project Contributors"
   },
-  "description": "Public domain disclosure of a software system for vertical reinforcement of FDM 3D printed parts using triangular lattice infill with hollow channels filled by per-layer injection during printing. Establishes prior art for coordinate systems, spiral interlock, coupled thermal-pressure injection models, two-stage greedy/CP-SAT tube assignment solvers with integer micron arithmetic and discrete domain optimization, zone boundary generation, safe park positioning, and G-code visualization protocols.",
+  "description": "Public domain disclosure of a software system for vertical reinforcement of FDM 3D printed parts using a selectable lattice infill (triangular, rectilinear/square, or tri-hex hexagon+triangle) with hollow channels filled by per-layer injection during printing. Establishes prior art for coordinate systems, a shape-generic per-pattern lattice abstraction, spiral interlock, coupled thermal-pressure injection models, two-stage greedy/CP-SAT tube assignment solvers with integer micron arithmetic and discrete domain optimization, a dual area+clearance cell-presence gate, per-tube actual-opening Z-slam sealing, clipped-cavity centroid injection points, zone boundary generation, safe park positioning, and G-code visualization protocols.",
   "license": "https://creativecommons.org/publicdomain/zero/1.0/",
   "keywords": [
     "FDM 3D printing",

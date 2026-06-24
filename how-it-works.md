@@ -4,9 +4,27 @@ This is the mechanism in more detail than the [README](README.md), without the m
 
 ## The lattice
 
-Magma replaces normal infill with a triangle lattice that forms hollow U-shaped vertical channels. These channels are injected at calculated intervals, "knitting" the part together with a 3D lattice. Each triangular cell is a vertical tube. Tubes are paired with their "neighbors" at specified points where "windows" are formed between them. These windows become the bottom of the U-shaped channel, allowing plastic to flow from one side of the tube pair to the other when the nozzle is pressed down onto one of the pairs' tube tops.
+Magma replaces normal infill with a lattice that forms hollow U-shaped vertical channels. These channels are injected at calculated intervals, "knitting" the part together with a 3D lattice. Each lattice cell is a vertical tube. Tubes are paired with their "neighbors" at specified points where "windows" are formed between them. These windows become the bottom of the U-shaped channel, allowing plastic to flow from one side of the tube pair to the other when the nozzle is pressed down onto one of the pairs' tube tops.
 
-The infill itself is a modified version of triangle infill. With additional logic for calculating neighboring pairs, ensuring min and max tube height bounds, drawing "windows" at the bottom of assigned tube pairs for injection, and injection code for when the layer reaches the top of each tube. Additionally, there's special rendering code so you can view the tubes and injection process in the slice preview.
+The infill itself is a modified version of an ordinary infill pattern, with additional logic for calculating neighboring pairs, ensuring min and max tube height bounds, drawing "windows" at the bottom of assigned tube pairs for injection, and injection code for when the layer reaches the top of each tube. Additionally, there's special rendering code so you can view the tubes and injection process in the slice preview.
+
+### The three patterns
+
+You pick the pattern with `sparse_infill_pattern`:
+
+- **Magma Triangle** — equilateral-triangle cells, three families of 60-degree lines (the original Magma pattern).
+- **Magma Rectilinear** — square cells from two perpendicular single-wall line families, with square windows on the shared edge.
+- **Magma Tri-hex** — hexagon cells (hubs) with triangle cells filling the gaps (vents). Instead of pairing two cells into a U, one injection fills a *manifold*: a hub plus several equal-length vent legs, all filled in one shot. A second pass hands each still-empty vent to whichever nearby hub-tube can fill the most of it, so fill follows the geometry — more legs in open areas, gracefully down to a plain U-tube where the part is pinched.
+
+| | Cells & lines | Injection unit | Notes / when to use |
+|---|---|---|---|
+| **Triangle** | equilateral triangles, 3 line families at 60° | U-tube (2 cells) | Packs the most tubes per area, so it's the **default** — maximum reinforcement. Opening/interior seal ratio 2.0 (the nozzle flat has to cover the widest opening). |
+| **Rectilinear** | squares, 2 perpendicular families at 90° | U-tube (2 cells) | **Easiest to seal** (ratio √2 ≈ 1.41) and fastest to print (2 straight families, not 3), at fewer tubes per area. Good for blocky / orthogonal parts. |
+| **Tri-hex** | hexagon hubs + triangle vents | manifold (hub + N vents) | One injection fills a hub plus many legs, so it covers **open areas** efficiently and degrades gracefully to a plain U-tube where the part pinches. |
+
+All three share the same solver, injection sequence, sealing, and preview — only the cell shape, the window placement, and the line families differ. Pick one with `sparse_infill_pattern` (or, in a dual-zone print, with the outer-zone pattern).
+
+A cell is only kept on a given layer if its clipped cross-section is at least 70% of the ideal cell area and the injection point still has room to seal against its opening (see [the solver](#staggering-the-solver)); pinched or clipped-away cells are dropped, and a tube's injected volume scales with each layer's actual clipped area.
 
 ![One printed layer, top down](assets/screenshots/01-triangle-infill-windows.png)
 
@@ -66,7 +84,7 @@ Injection runs as the print climbs, not all at the end. At the right height the 
 
 ### Sealing depth (z-slam)
 
-The seal happens because the nozzle tip flat (and the cone above it) covers the tube opening when pressed down. A wide flat that already covers the opening only needs a token press; a narrow flat on a tapered tip has to go deeper so the widening cone reaches the opening width. Rather than guess, **Auto Z-slam** computes the depth from geometry — the tube opening, the measured tip flat, and the nozzle cone half-angle: `z_slam = max(0.1, (opening + margin - flat) / (2 * tan(angle)))`, where `margin` is a small seal margin (0.1mm) so the cone clears the opening with room to spare rather than just grazing it. Turn it on and it tracks whatever tube size and nozzle you are running; leave it off to dial the depth in by hand.
+The seal happens because the nozzle tip flat (and the cone above it) covers the tube opening when pressed down. A wide flat that already covers the opening only needs a token press; a narrow flat on a tapered tip has to go deeper so the widening cone reaches the opening width. Rather than guess, **Auto Z-slam** computes the depth from geometry — the tube opening, the measured tip flat, and the nozzle cone half-angle: `z_slam = max(0.1, (opening + margin - flat) / (2 * tan(angle)))`, where `margin` is a small seal margin (0.1mm) so the cone clears the opening with room to spare rather than just grazing it. The depth is computed per tube from that tube's actual cap opening, so a tube whose top got clipped narrow gets the deeper press it needs. Auto Z-slam is on by default and recommended; it tracks whatever tube size and nozzle you are running. Turn it off to dial the depth in by hand.
 
 ### Plunge (slam-melt)
 
