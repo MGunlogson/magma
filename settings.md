@@ -54,6 +54,8 @@ A cell is only kept on a layer when its clipped tube cross-section is at least 7
 
 ## Magma Injection (Strength tab)
 
+> ⚠️ **Klipper users:** injection extrudes in place (lots of E, almost no XYZ movement), which trips Klipper's `max_extrude_cross_section` guard and **aborts the print** at the first injection. Raise it in `[extruder]` (e.g. `max_extrude_cross_section: 5000`, plus `max_extrude_only_distance: 500`). It's a `printer.cfg` setting and can't be set from G-code. See the [README](README.md#-printer-firmware-setup--required-before-you-print).
+
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `magma_injection_temp` | 0 (no change) | Injection temperature |
