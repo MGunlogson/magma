@@ -272,6 +272,15 @@ status of the physical printing side, see the [project README](README.md).
 
 ### Notes
 
+- **Printer firmware: raise the extrusion guards before printing.** Injection extrudes a
+  large volume of filament while the nozzle moves only a fraction of a millimetre, so the
+  effective extrusion cross-section is very high. On **Klipper** the default
+  `max_extrude_cross_section` (~`4 × nozzle_diameter²`) will hard-abort the print at the
+  first injection ("Move exceeds maximum extrusion cross section"); set it to a large value
+  (e.g. `5000`) in `[extruder]`, and raise `max_extrude_only_distance` (e.g. `500`) for
+  large / no-plunge injections. These are `printer.cfg` settings and **cannot be set from
+  G-code**, so the slicer can't do it for you. **Marlin/RRF** have no cross-section guard
+  (injection generally works) — just check cold-extrude prevention and max E feedrate/jerk.
 - Magma is not compatible with Spiral Vase mode printing
 
 ---

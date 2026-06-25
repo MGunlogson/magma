@@ -80,6 +80,22 @@ Other things worth trying: a high-flow hotend, short tubes (down to about 4mm), 
 **Source:** [MGunlogson/OrcaSlicer, magma-infill branch](https://github.com/MGunlogson/OrcaSlicer/tree/magma-infill).
 **Pre-built binaries:** [releases page](https://github.com/MGunlogson/OrcaSlicer/releases). Tested on Linux, builds for all platforms.
 
+> ## ⚠️ Printer firmware setup — REQUIRED before you print
+>
+> Injection deposits a lot of plastic while the nozzle barely moves (it extrudes in place, sinking only a fraction of a millimetre). That **trips firmware safety limits** which assume extrusion is roughly proportional to movement. If you don't change these, the print will either **hard-abort at the first injection** or inject in a fast, clamped burst that won't pack the tube.
+>
+> **Klipper** — in your `[extruder]` section of `printer.cfg`:
+> ```
+> [extruder]
+> max_extrude_cross_section: 5000   # in-place injection has a HUGE extrude-to-move ratio;
+>                                   # the default (~1.4 for a 0.6 nozzle) aborts with
+>                                   # "Move exceeds maximum extrusion cross section"
+> max_extrude_only_distance: 500    # for large / no-plunge (pure-E) injections
+> ```
+> These are config-only — they **cannot** be set from G-code at runtime, so the slicer can't do it for you. If you still see the cross-section error, raise the value further (it must exceed `filament_area × injected_mm / plunge_depth`).
+>
+> **Marlin / RRF** — no `max_extrude_cross_section` equivalent, so injection generally works, but make sure cold-extrusion prevention won't block it (the nozzle is hot during injection) and that your max E feedrate/jerk allow the injection rate.
+
 To see it work: slice a part with Magma Triangle infill, then in the preview hide everything except injection lines. The U-tubes appear.
 
 Starting settings (guesses, none have given a totally clean print yet):
