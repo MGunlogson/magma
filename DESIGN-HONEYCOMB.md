@@ -16,9 +16,12 @@ hub↔vent, and the continuous honeycomb sweep toolpath.
 - Every cell is a regular **pointy-top hexagon** — a vertical left and right edge plus
   four slanted edges — bordering **6** neighbours. Implemented in `HexLattice`
   (`MagmaHexCell.hpp`).
-- Cell size is driven by the tube interior width: the flat-to-flat / centre-to-centre
-  spacing `s = interior_width + line_width`, and the hex edge `e = s/√3` (`= s·INV_SQRT3`;
-  a regular hexagon's flat-to-flat across the verticals is `e√3`).
+- Cell size is driven by the tube interior width: the centre-to-centre spacing
+  `s = interior_width + line_width`, and the **open** hex edge `e = interior_width/√3`
+  (`= (s − lw)·INV_SQRT3`; a regular hexagon's flat-to-flat across the verticals is `e√3`,
+  so the open tube's flat-to-flat is exactly `interior_width`). Note `e` is derived from
+  the *interior*, not from `s` — deriving it from `s` leaves the open hexagon one bead
+  too wide.
 - `CellId` carries axial coords `(q, r)` packed as `(a=q, b=r, 0, 0)`; `c` and `kind`
   are unused. Hexes have no parity (`is_up()` is always false).
 - Ideal pointy-top centre: `x = s·(q + r/2)`, `y = s·(√3/2)·r` — a row (`r` fixed) steps
@@ -32,7 +35,8 @@ hub↔vent, and the continuous honeycomb sweep toolpath.
 Walls are single shared beads centred on the edges, so the open interior is the hexagon
 inset by `line_width/2` per side → open apothem `a' = (s − lw)/2 = interior/2`.
 
-- `edge_length = e = s/√3`.
+- `edge_length = e = interior/√3` (the OPEN edge; `HexGeometry::edge_length(spacing)`
+  is called with the open flat-to-flat, not with `s`).
 - `inset_open_area = 2√3·a'²` (regular-hex area from apothem `a'`).
 - `opening_diameter = 2·(s − lw)/√3` — the circumscribed circle of the open hexagon,
   which the nozzle flat must cover during Z-slam.
@@ -55,7 +59,8 @@ The toolpath (§4) draws the **VERTICAL** walls **doubled** (two beads, total wi
 (verticals ≠ slants). To make the OPEN tube the original regular hexagon (edge `e`),
 `HexLattice` pre-expands the tiling on every affected axis (`lw` = line width):
 
-- horizontal flat-to-flat (X): `m_sx = s + 2·lw` — the doubled wall, `lw` each side.
+- horizontal flat-to-flat (X): `m_sx = interior_width + 2·lw` (`= s + lw`) — the doubled
+  wall, `lw` each side, added outside the open flat-to-flat.
 - top/bottom vertex offset (Y): `m_vtop = e + lw/√3` — the slant inset lifts the apex.
 - row pitch (Y): `m_row = 1.5·e + lw/√3` (`= m_vtop + e/2`, preserving the tiling).
 - the vertical-edge half-length stays `e/2` (corners at `±e/2` about the centre) → the

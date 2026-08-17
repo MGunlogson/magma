@@ -52,7 +52,7 @@ Key technical innovations disclosed herein include:
 
 16. A one-to-many ("manifold") injection unit and its vent-fill allocation, in which a single injection fills a hub cell plus multiple **equal-length** vent legs -- windows pinned to the hub-tube's bottom so every leg spans the hub-tube's layer range -- and a per-vent allocation maximizes filled volume by: (a) forming an unavailable-layer mask per vent = layers absent due to part geometry UNION layers already committed to other injections; (b) discarding any candidate hub-tube whose layer range crosses that mask (which would trap injected air); and (c) within each remaining present-run, selecting by weighted interval scheduling over the contained hub-tube ranges the non-overlapping set of tubes that fills the most layers, tie-broken toward the least-loaded hub. Each vent layer is filled exactly once and hubs are uncapped, so the allocation is independent per vent and yields the maximal fill achievable with windows aligned to real tube boundaries. The pairwise U-tube is the degenerate single-leg case.
 
-17. A fourth reinforcement-cell tiling -- **Magma Honeycomb** -- a regular pointy-top hexagonal lattice (joining the triangular, rectilinear/square, and tri-hexagonal tilings on the shared shape-generic pipeline of claim 13) whose cell size is driven by the injection tube interior width (nozzle-derived), not by infill density. Its novel embodiment reuses a single continuous honeycomb sweep -- one vertical zigzag per lane-pair, phased to the lattice -- so the pattern prints fast; that sweep inherently traces every vertical cell wall DOUBLED (each vertical lane is swept by both adjacent lane-pairs) while the slanted walls stay single. To keep the open *injectable* tube a true regular hexagon despite the asymmetric wall thickness, the lattice is pre-expanded anisotropically -- horizontal flat-to-flat spacing `s + 2*lw`, top/bottom vertex height `e + lw/sqrt(3)`, and row pitch `1.5*e + lw/sqrt(3)` (with `s = interior_width + line_width` the flat-to-flat spacing, `e = s/sqrt(3)` the hex edge, `lw` the line width) -- so that after the doubled verticals (each intruding `lw`) and single slants (each intruding `lw/2`) eat into the cell, the remaining open cross-section is a regular hexagon of edge `e`. U-tube pairing and shared-wall windows apply exactly as in the other patterns (6 edge-sharing neighbours, 2 cells per pair, no vents).
+17. A fourth reinforcement-cell tiling -- **Magma Honeycomb** -- a regular pointy-top hexagonal lattice (joining the triangular, rectilinear/square, and tri-hexagonal tilings on the shared shape-generic pipeline of claim 13) whose cell size is driven by the injection tube interior width (nozzle-derived), not by infill density. Its novel embodiment reuses a single continuous honeycomb sweep -- one vertical zigzag per lane-pair, phased to the lattice -- so the pattern prints fast; that sweep inherently traces every vertical cell wall DOUBLED (each vertical lane is swept by both adjacent lane-pairs) while the slanted walls stay single. To keep the open *injectable* tube a true regular hexagon despite the asymmetric wall thickness, the lattice is pre-expanded anisotropically -- horizontal X pitch `interior_width + 2*lw`, top/bottom vertex height `e + lw/sqrt(3)`, and row pitch `1.5*e + lw/sqrt(3)` (with `interior_width` the requested open flat-to-flat, `e = interior_width/sqrt(3)` the OPEN hex edge, `s = interior_width + line_width` the centre-to-centre spacing, and `lw` the line width; note both `e` and the X pitch are derived from the interior width rather than from `s`, since deriving them from `s` leaves the open hexagon one line width too wide) -- so that after the doubled verticals (each intruding `lw`) and single slants (each intruding `lw/2`) eat into the cell, the remaining open cross-section is a regular hexagon of edge `e`. U-tube pairing and shared-wall windows apply exactly as in the other patterns (6 edge-sharing neighbours, 2 cells per pair, no vents).
 
 18. **Measured** injection-volume determination from the deposited toolpath, in which each U-tube's injectable cavity volume is not estimated from closed-form cell geometry but MEASURED from the actually generated infill after the toolpath exists. For each layer of a pair's run the injectable void = (the union of the pair's cell polygons, intersected with the reinforcement zone) MINUS the footprint of the deposited walls (the polygons covered by the extrusion width), summed times layer height over the run. A single geometric measurement thereby captures -- directly from the deposited footprint, with no per-pattern correction terms -- side-by-side doubled walls (such as the honeycomb pattern's doubled verticals), the window gap, and part-edge clipping. The one residual the union footprint cannot see -- the extra material where lines CROSS and stack, which `polygons_covered_by_width` merges into a single union -- is removed by the always-applied, self-scaling correction of claim 19. The measured cavity then drives the injected-plastic dose.
 
@@ -474,7 +474,7 @@ for (int i = span.start; i <= span.end; ++i) {
 
 ### 3.h Magma Honeycomb Pattern -- Continuous Sweep with Anisotropic-Stretch Compensation
 
-Magma Honeycomb is a fourth selectable reinforcement-cell tiling alongside Magma Triangle, Magma Rectilinear, and Magma Tri-hex. It is a regular pointy-top hexagonal (honeycomb) tiling: every cell is a hexagon with a vertical left and right edge and four slanted edges, bordering six edge-sharing neighbours. Unlike Tri-hex there are no triangular vents -- two adjacent hexagons pair into an ordinary two-cell U-tube (window cut in their shared edge), exactly as triangle and rectilinear cells do. The cell size is driven by the injection tube interior width (auto-derived from nozzle geometry, or user-specified), not by an infill-density percentage: the center-to-center spacing equals the flat-to-flat spacing `s = interior_width + line_width`, and the hexagon edge is `e = s / sqrt(3)`.
+Magma Honeycomb is a fourth selectable reinforcement-cell tiling alongside Magma Triangle, Magma Rectilinear, and Magma Tri-hex. It is a regular pointy-top hexagonal (honeycomb) tiling: every cell is a hexagon with a vertical left and right edge and four slanted edges, bordering six edge-sharing neighbours. Unlike Tri-hex there are no triangular vents -- two adjacent hexagons pair into an ordinary two-cell U-tube (window cut in their shared edge), exactly as triangle and rectilinear cells do. The cell size is driven by the injection tube interior width (auto-derived from nozzle geometry, or user-specified), not by an infill-density percentage: the center-to-center spacing is `s = interior_width + line_width`, and the **open** hexagon edge is `e = interior_width / sqrt(3)` -- derived from the interior width, not from `s`, so that the printed open tube's flat-to-flat is exactly `interior_width` (deriving `e` from `s` leaves the open hexagon one line width too wide).
 
 Because a hexagon is the Tri-hex *hub* shape, the per-shape geometry strategy reuses the hub formulas (open area, seal opening, inscribed radius, auto-sizing). The differences from Tri-hex are only the hub-vs-vent specifics: the neighbour distance is hexagon-to-hexagon (one full spacing), the window feeds the paired hexagon rather than a vent, and the wall junction is the degree-3 honeycomb vertex (three walls meeting at 120 degrees, i.e. line *ends*, not a line crossing).
 
@@ -510,8 +510,12 @@ double vertex_overlap_excess_area(double /*line_width*/) const override { return
 ```cpp
 // src/libslic3r/Fill/FillMagma.cpp — FillMagmaHoneycomb::_fill_surface_single
 
-const double row  = 1.5 * e + lw * magma::INV_SQRT3;   // lattice row spacing (Y)
-const double half = (s + 2.0 * lw) * 0.5;              // lanes on the stretched X (= m_sx/2)
+const double s    = this->tube_map->cell_spacing();     // centre-to-centre = interior + lw
+const double iw   = this->tube_map->interior_width();   // OPEN flat-to-flat (user spec)
+const double lw   = s - iw;                             // line width
+const double e    = iw * magma::INV_SQRT3;              // OPEN hex edge = interior/sqrt3
+const double row  = 1.5 * e + lw * magma::INV_SQRT3;    // lattice row spacing (Y)
+const double half = (iw + 2.0 * lw) * 0.5;              // lane pitch = m_sx/2 = (interior + 2lw)/2
 for (int k = k_min; k <= k_max; ++k) {
     const double xL  = ox + double(k)     * half + x_off;
     const double xR  = ox + double(k + 1) * half - x_off;
@@ -534,14 +538,17 @@ A consequence of this lane-pair sweep is that every vertical lane is traced by *
 
 ```cpp
 // src/libslic3r/Magma/MagmaHexCell.hpp — HexLattice
-//   flat-to-flat (X): + 2*lw   (the doubled wall, lw each side)            -> m_sx
-//   top/bottom vertex (Y): + lw/sqrt3  (the slant inset lifts the apex)    -> m_vtop
-//   row spacing (Y): + lw/sqrt3  (= keeps the tiling closed)               -> m_row
+// Built OUTWARD from the OPEN hexagon (interior = cell_spacing - line_width), so the
+// printed open tube comes out at exactly the requested interior width:
+//   X pitch: interior + 2*lw   (the doubled wall, lw each side)            -> m_sx
+//   top/bottom vertex (Y): e + lw/sqrt3  (the slant inset lifts the apex)  -> m_vtop
+//   row spacing (Y): 1.5*e + lw/sqrt3  (= keeps the tiling closed)         -> m_row
 explicit HexLattice(double cell_spacing, double offset_x = 0.0, double offset_y = 0.0,
                     double line_width = 0.0)
     : m_cell_spacing(cell_spacing)
-    , m_edge(hex_edge_length(cell_spacing))                       // e = s / sqrt3
-    , m_sx  (cell_spacing + 2.0 * std::max(0.0, line_width))      // stretched flat-to-flat
+    , m_edge(hex_edge_length(std::max(0.0, cell_spacing - std::max(0.0, line_width))))
+                                                                  // e = interior / sqrt3
+    , m_sx  (cell_spacing + std::max(0.0, line_width))             // = interior + 2*lw
     , m_vtop(m_edge + std::max(0.0, line_width) * INV_SQRT3)      // extended top/bottom vertex
     , m_row (1.5 * m_edge + std::max(0.0, line_width) * INV_SQRT3)// extended row spacing
     , m_offset_x(offset_x), m_offset_y(offset_y)
@@ -564,7 +571,7 @@ The vertical-edge length is held at `e` (the `+-hy` corners), while the horizont
 
 **Windows.** Each open pair's shared wall is removed by subtracting a rectangle laid over the shared edge, wide enough (`x_off + lw` half-width) to span both doubled verticals and shortened by a bead so the hexagon corners survive, then the swept polylines are clipped to the region and chained into continuous sweeps. Window height is auto-derived from the partner hexagon's open cross-section (`auto_window_height = open_area / open_edge`), matching the cross-section flow area as in the triangle and square patterns.
 
-**Prior-art scope.** This disclosure establishes prior art for: (a) a regular-hexagon (honeycomb) vertical-reinforcement injection-infill tiling whose cell size is set by the nozzle-derived tube interior width rather than an infill density; (b) generating its toolpath as a single continuous lane-pair honeycomb zigzag (rather than per-hexagon perimeters) for fast, low-travel printing; (c) the resulting doubled vertical walls / single slanted walls produced by that sweep; and (d) anisotropically pre-stretching the lattice (flat-to-flat `+2*lw`, vertex `+lw/sqrt(3)`, row pitch `+lw/sqrt(3)`) so that the *open* injectable cross-section is a regular hexagon despite the asymmetric deposited wall thickness, with U-tube pairing and shared-wall windows as in the other Magma patterns.
+**Prior-art scope.** This disclosure establishes prior art for: (a) a regular-hexagon (honeycomb) vertical-reinforcement injection-infill tiling whose cell size is set by the nozzle-derived tube interior width rather than an infill density; (b) generating its toolpath as a single continuous lane-pair honeycomb zigzag (rather than per-hexagon perimeters) for fast, low-travel printing; (c) the resulting doubled vertical walls / single slanted walls produced by that sweep; and (d) anisotropically pre-stretching the lattice outward from the *open* cross-section (X pitch = open flat-to-flat `+2*lw` for the doubled verticals, vertex `+lw/sqrt(3)` and row pitch `+lw/sqrt(3)` for the single slants) so that the *open* injectable cross-section is a regular hexagon of the requested interior width despite the asymmetric deposited wall thickness, with U-tube pairing and shared-wall windows as in the other Magma patterns.
 
 ---
 
