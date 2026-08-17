@@ -16,7 +16,7 @@ status of the physical printing side, see the [project README](README.md).
 
 ### Core: Magma Infill System
 
-- **Three selectable infill patterns** — all share one tube-assignment solver,
+- **Four selectable infill patterns** — all share one tube-assignment solver,
   injection pipeline, and preview, via a per-shape geometry/lattice strategy
   (`MagmaGeometry` / `MagmaLattice`). Pick one as `Sparse infill pattern` (or as the
   dual-zone outer pattern):
@@ -32,6 +32,13 @@ status of the physical printing side, see the [project README](README.md).
     filling the gaps (trihexagonal / Kagome tiling). One injection fills a *manifold*: a
     hub plus several equal-length vent legs (not just a pairwise U-tube). See
     [DESIGN-TRIHEX.md](DESIGN-TRIHEX.md).
+  - **Magma Honeycomb** (`ipMagmaHoneycomb`) — a regular pointy-top hexagonal tiling;
+    the cell size is driven by the tube interior width. Reuses OrcaSlicer's fast
+    continuous honeycomb toolpath (one zigzag per lane pair — so vertical walls are
+    drawn doubled and slants single — with minimal travel and no mid-path retraction),
+    and pre-expands the lattice so the open tube comes out a true regular hexagon. Pairs
+    two hexes into a U-tube like Triangle/Rectilinear. See
+    [DESIGN-HONEYCOMB.md](DESIGN-HONEYCOMB.md).
 
 - **U-tube / manifold assignment** — adjacent cells are joined by window gaps at their
   shared wall. Plastic is injected down one cell and rises up through the partner(s),
@@ -81,9 +88,13 @@ status of the physical printing side, see the [project README](README.md).
   *vent* triangle (the window feeds only the adjacent vent, not the larger hub) with a
   1.0 mm floor.
 
-- **Per-layer volume computation** — injection volumes account for variable layer
-  heights, window gap volume, and per-shape vertex-overlap excess subtraction (triangle
-  `3√3·lw²/4`, square `lw²`, tri-hex `2·lw²/√3`).
+- **Measured injection volume** — the dose for each tube is now MEASURED from the real
+  deposited toolpath after infill, replacing the old per-shape geometric estimate. Per
+  layer the void is `(the pair's cells ∩ zone) − the deposited wall footprint`, summed
+  over the run × the actual layer height. A single measurement automatically captures
+  doubled walls, line-crossing overlaps, the window gap, and part-edge clipping — no
+  per-shape area formula. (`MagmaTubeMap::measure_volumes`, run after
+  `PrintObject::infill()` when the real paths exist.)
 
 ### Core: Dual-Zone Infill Architecture
 
@@ -229,10 +240,15 @@ status of the physical printing side, see the [project README](README.md).
   Auto threshold = 2x nozzle diameter.
 
 - **Vertex overlap correction** — where line families cross (triangle 60°, square 90°,
-  tri-hex Kagome vertices) material is deposited twice. Both infill flow and injection
-  volume are corrected per shape: line width is reduced (floored at
-  `magma_overlap_min_width`, default 90% of nozzle diameter), excess area subtracted from
-  tube volume calculations.
+  tri-hex Kagome vertices) material is deposited twice. The injection volume is **always**
+  corrected for this overlap, sized to the **actual deposited line width**;
+  `magma_overlap_line_correction` (default off) controls only how the lines PRINT, not
+  whether the volume is corrected. On → infill flow is reduced so the deposited bead
+  shrinks (floored at `magma_overlap_min_width`, default 90% of nozzle diameter), so only
+  the small residual overlap of the thinned lines is subtracted; off → lines print full
+  width and the full overlap is subtracted. One self-scaling term, never double-counted.
+  (Honeycomb has degree-3 vertices — line ends meet, no crossings — so its overlap term is
+  zero either way.)
 
 - **Bridge detection zone-awareness** — zone outer infill is treated as solid
   support for bridges; unfilled cells (no tube coverage) are subtracted so
@@ -305,6 +321,7 @@ src/libslic3r/
 │   ├── MagmaTriangleCell.hpp/.cpp    — Triangle geometry + lattice
 │   ├── MagmaRectilinearCell.hpp      — Square geometry + lattice
 │   ├── MagmaTriHexCell.hpp           — Tri-hex (hub/vent) geometry + lattice
+│   ├── MagmaHexCell.hpp              — Honeycomb (regular hexagon) geometry + lattice
 │   ├── MagmaSpiralOffset.hpp/.cpp    — Per-layer helical offset computation
 │   ├── MagmaTubeMap.hpp/.cpp         — Cell presence, tube pairs/manifolds, volumes, windows
 │   ├── MagmaGreedyWarmStart.hpp/.cpp — Most-constrained-first tube assignment
@@ -312,7 +329,7 @@ src/libslic3r/
 │   ├── MagmaInjection.hpp/.cpp       — Injection G-code, visualization, parking
 │   └── MagmaInjectionOrder.hpp/.cpp  — Per-layer "spread heat" injection ordering
 ├── Fill/
-│   └── FillMagma.hpp/.cpp            — FillMagma{Triangle,Rectilinear,TriHex} toolpaths
+│   └── FillMagma.hpp/.cpp            — FillMagma{Triangle,Rectilinear,TriHex,Honeycomb} toolpaths
 ├── ZoneBoundary/
 │   └── ZoneInterior.hpp/.cpp         — OpenVDB smoothing, thin section filtering
 └── GCode/
@@ -369,6 +386,8 @@ src/libslic3r/
   lattice, geometry, and window placement
 - [DESIGN-TRIHEX.md](DESIGN-TRIHEX.md) — Tri-hex manifold pattern: trihexagonal
   lattice, hub/vent injection model, extra-vent sweep
+- [DESIGN-HONEYCOMB.md](DESIGN-HONEYCOMB.md) — Honeycomb (regular hexagon) pattern:
+  hex lattice, the native honeycomb sweep, doubled-vertical squish compensation
 - [DEFENSIVE_PUBLICATION.md](DEFENSIVE_PUBLICATION.md) — Public domain
   disclosure establishing prior art (CC0 1.0)
 

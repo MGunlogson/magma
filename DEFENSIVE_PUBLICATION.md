@@ -4,7 +4,7 @@ render_with_liquid: false
 
 # Defensive Publication: Magma Vertical Reinforcement Infill System for FDM 3D Printing
 
-**Publication Date:** February 9, 2026 (Updated March 16, 2026; June 23, 2026)
+**Publication Date:** February 9, 2026 (Updated March 16, 2026; June 23, 2026; June 25, 2026; August 17, 2026)
 
 **Authors:** Mark Gunlogson
 
@@ -14,7 +14,7 @@ render_with_liquid: false
 
 ## 1. Abstract
 
-This defensive publication discloses a complete software system for vertical reinforcement of Fused Deposition Modeling (FDM) 3D printed parts. The system, named Magma, modifies open-source slicer software (OrcaSlicer) to generate a user-selectable lattice infill pattern -- triangular, rectilinear (square), or tri-hex (hexagon + triangle) -- containing hollow channels (tubes) that are filled with injected molten plastic **during printing on a per-layer basis** -- not as a post-print operation. The injection occurs as a dedicated print stage within each layer's processing, using the printer's existing extruder at elevated temperature.
+This defensive publication discloses a complete software system for vertical reinforcement of Fused Deposition Modeling (FDM) 3D printed parts. The system, named Magma, modifies open-source slicer software (OrcaSlicer) to generate a user-selectable lattice infill pattern -- triangular, rectilinear (square), tri-hex (hexagon + triangle), or honeycomb (regular hexagon) -- containing hollow channels (tubes) that are filled with injected molten plastic **during printing on a per-layer basis** -- not as a post-print operation. The injection occurs as a dedicated print stage within each layer's processing, using the printer's existing extruder at elevated temperature.
 
 The system requires **no hardware modifications** to standard FDM printers. It is implemented entirely as software modifications to the slicer's infill generation, G-code output, and preview rendering subsystems.
 
@@ -44,7 +44,7 @@ Key technical innovations disclosed herein include:
 
 12. A neighbour-aware crater-ironing finishing move that, after each injection, spirals the nozzle inward over the injection point so the angled nozzle cone plows the displaced rim back into the crater (deflecting material both inward and downward by the cone-normal geometry) and irons it flat while scraping the nozzle clean; the nozzle hovers above layer height over neighbouring cells and only descends to press inside a geometrically-derived radius that keeps the flat clear of any neighbouring tube opening's far vertex, guaranteeing a neighbour's air-escape hole is never sealed.
 
-13. A shape-generic lattice and geometry abstraction in which the tube grid, neighbour pairing, window placement, opening size, cell-area/volume, and injection geometry are all expressed through a per-shape strategy interface, so multiple infill patterns -- triangular (equilateral cells), rectilinear (square cells), and tri-hex (hexagon + triangle cells) -- share a single tube-assignment solver, injection pipeline, and preview-rendering pipeline. Tri-hex additionally uses vent-based injection allocation (a single injection serving multiple connected vents) rather than only pairwise U-tube coupling. Any pattern may also serve as the outer-zone fill in the dual-zone architecture.
+13. A shape-generic lattice and geometry abstraction in which the tube grid, neighbour pairing, window placement, opening size, cell-area/volume, and injection geometry are all expressed through a per-shape strategy interface, so multiple infill patterns -- triangular (equilateral cells), rectilinear (square cells), tri-hex (hexagon + triangle cells), and honeycomb (regular hexagon cells) -- share a single tube-assignment solver, injection pipeline, and preview-rendering pipeline. Tri-hex additionally uses vent-based injection allocation (a single injection serving multiple connected vents) rather than only pairwise U-tube coupling. Any pattern may also serve as the outer-zone fill in the dual-zone architecture.
 
 14. A dual cell-presence gate that admits a cell as a tube cell on a given layer only when BOTH (a) its clipped interior area is at least a fixed fraction (70%) of the ideal cell area AND (b) the injection point retains at least the nozzle-flat radius of clearance to the nearest opening boundary. The area test bounds how much of the cross-section survives clipping; the clearance test -- evaluated at the actual injection point -- rejects shapes where a spike or pinch intrudes toward the centre (which the area test alone would pass), guaranteeing the nozzle flat can seat. This unified per-layer gate supersedes a separate constriction-detection pass, and because injection volume is computed from each layer's actual clipped area, admitted partial cells are dosed proportionally.
 
@@ -52,7 +52,51 @@ Key technical innovations disclosed herein include:
 
 16. A one-to-many ("manifold") injection unit and its vent-fill allocation, in which a single injection fills a hub cell plus multiple **equal-length** vent legs -- windows pinned to the hub-tube's bottom so every leg spans the hub-tube's layer range -- and a per-vent allocation maximizes filled volume by: (a) forming an unavailable-layer mask per vent = layers absent due to part geometry UNION layers already committed to other injections; (b) discarding any candidate hub-tube whose layer range crosses that mask (which would trap injected air); and (c) within each remaining present-run, selecting by weighted interval scheduling over the contained hub-tube ranges the non-overlapping set of tubes that fills the most layers, tie-broken toward the least-loaded hub. Each vent layer is filled exactly once and hubs are uncapped, so the allocation is independent per vent and yields the maximal fill achievable with windows aligned to real tube boundaries. The pairwise U-tube is the degenerate single-leg case.
 
+17. A fourth reinforcement-cell tiling -- **Magma Honeycomb** -- a regular pointy-top hexagonal lattice (joining the triangular, rectilinear/square, and tri-hexagonal tilings on the shared shape-generic pipeline of claim 13) whose cell size is driven by the injection tube interior width (nozzle-derived), not by infill density. Its novel embodiment reuses a single continuous honeycomb sweep -- one vertical zigzag per lane-pair, phased to the lattice -- so the pattern prints fast; that sweep inherently traces every vertical cell wall DOUBLED (each vertical lane is swept by both adjacent lane-pairs) while the slanted walls stay single. To keep the open *injectable* tube a true regular hexagon despite the asymmetric wall thickness, the lattice is pre-expanded anisotropically -- horizontal flat-to-flat spacing `s + 2*lw`, top/bottom vertex height `e + lw/sqrt(3)`, and row pitch `1.5*e + lw/sqrt(3)` (with `s = interior_width + line_width` the flat-to-flat spacing, `e = s/sqrt(3)` the hex edge, `lw` the line width) -- so that after the doubled verticals (each intruding `lw`) and single slants (each intruding `lw/2`) eat into the cell, the remaining open cross-section is a regular hexagon of edge `e`. U-tube pairing and shared-wall windows apply exactly as in the other patterns (6 edge-sharing neighbours, 2 cells per pair, no vents).
+
+18. **Measured** injection-volume determination from the deposited toolpath, in which each U-tube's injectable cavity volume is not estimated from closed-form cell geometry but MEASURED from the actually generated infill after the toolpath exists. For each layer of a pair's run the injectable void = (the union of the pair's cell polygons, intersected with the reinforcement zone) MINUS the footprint of the deposited walls (the polygons covered by the extrusion width), summed times layer height over the run. A single geometric measurement thereby captures -- directly from the deposited footprint, with no per-pattern correction terms -- side-by-side doubled walls (such as the honeycomb pattern's doubled verticals), the window gap, and part-edge clipping. The one residual the union footprint cannot see -- the extra material where lines CROSS and stack, which `polygons_covered_by_width` merges into a single union -- is removed by the always-applied, self-scaling correction of claim 19. The measured cavity then drives the injected-plastic dose.
+
+19. A single, self-scaling overlap correction that is ALWAYS applied to the measured injection volume of claim 18, sized to the ACTUAL deposited line width, so the line-crossing over-extrusion is corrected exactly once and never double-counted regardless of how the lines were printed. The system subtracts the over-extruded crossing material from the measured cavity, apportioned per cell from each shape's vertex geometry evaluated at the effective (deposited) line width `lw_eff` (triangle `(3*sqrt(3)/4)*lw_eff^2` per vertex, square `lw_eff^2`, tri-hex `(2/sqrt(3))*lw_eff^2` charged to incident cells by corner count, honeycomb `0` -- its degree-3 junctions are line ends, not crossings). The separate `magma_overlap_line_correction` setting (default off) is a *print-quality* lever, NOT a volume gate: it controls only how the lines PRINT, not whether the volume is corrected. When on, it reduces infill flow so the deposited lines print thinner (floored near 90% of nozzle width, `magma_overlap_min_width`, to avoid sub-nozzle-width lines), which makes `lw_eff` smaller so only the small RESIDUAL crossing overlap of the thinned lines is subtracted; when off (default), the lines print full width and the full overlap is subtracted. Because the subtraction always uses the width actually deposited -- and because the deposited-footprint measurement (claim 18) merges crossing beads into one union, so the second crossing bead's bulge into the void is never captured there -- the overlap is compensated exactly once whatever the setting.
+
 All algorithms, code, and structures described in this document are dedicated to the public domain to establish prior art and prevent patenting by third parties.
+
+### 1.1 Relationship to Prior Art
+
+*This section is contextual. It makes no new disclosure claim and does not alter the priority dates recorded in the Prior Art Declaration below.*
+
+Filling internal cavities with molten material during printing, to bridge layer interfaces, is **not new**. The relevant prior work, and how Magma relates to it:
+
+**ORNL Z-pinning** (Duty, Failla, Kim, Smith, Lindahl, Roschli, Post, Love, Kunc; *Additive Manufacturing*, 2018-19). Voids are intentionally aligned across *n* layers and back-filled continuously during deposition of layer *n+1*. Reported >3.5x increase in Z-direction tensile strength and toughness for PLA and CF-PLA, with strength rising as pin fill volume increased from 0% to 120%. The paper also reports the limiting failure: molten PLA **failed to fully fill the holes, introducing excessive porosity**. This is the closest published antecedent to the core concept and predates the AIM3D priority date below.
+
+**AIM3D Voxelfill** -- EP 4100235 B1 (priority DE 10 2021 106 037.0, 2021-03-12; granted 2023-08-09; family US 2024/0165874, CA 3213385; divisional EP 4238741 A1 pending). Claims a method in which a first work step produces an outer contour bounding a volume region containing at least one open volume chamber, and a following second work step at least partially fills that chamber with filler material. Commercialized through Create it REAL in REALvision Pro. The distinguishing feature in AIM3D's published descriptions is a **half-height offset of volume elements between successive layers**, producing a brick-bond arrangement that displaces the yield plane. Reported results include up to 81% of XY tensile strength along Z on PETG-GF30. Note that the granted claim's cited references do not include the ORNL work above.
+
+**US 12,539,664** -- thermoset resin infiltration into channels in FFF parts. Distinct in both material class (thermoset rather than nozzle-extruded thermoplastic) and timing (post-process infiltration rather than in-print injection).
+
+**JanTec Engineering** -- published hobbyist experiments injecting molten plastic into infill channels with a hot end. Three practical findings are directly relevant: (a) molten plastic cools on leaving the nozzle and will not travel far down a deep hole, so cavities must be filled periodically rather than in one shot; (b) bottom-up filling substantially outperforms top-down, achieved by modifying the hot end with an airbrush nozzle for roughly 4mm of additional reach; (c) higher injection temperatures fill cavities more completely but the carried heat risks deforming the surrounding print.
+
+**OrcaSlicer discussion #4815** and related community threads -- multi-year community discussion of G-code-level Z-pinning and 3D injection, without a working slicer implementation.
+
+#### What Magma shares with this prior work
+
+The core concept -- printing internal cavities and filling them with nozzle-extruded molten thermoplastic mid-print to reinforce the Z axis -- is common to ORNL, AIM3D, and Magma. No novelty is claimed for it here.
+
+#### What Magma contributes
+
+Each of JanTec's three published constraints is answered **in software and geometry rather than with modified hardware**, which is what makes the system implementable in a slicer on a stock printer:
+
+| Published constraint | Magma's answer |
+|---|---|
+| Plastic will not travel far down a deep hole | Low-aspect-ratio channels -- roughly 1:1 depth-to-width, ~3mm -- sized from nozzle geometry rather than infill density. The travel distance is shortened instead of the nozzle being lengthened. |
+| Bottom-up filling beats top-down, but requires a modified hot end | The **U-tube pair** (Section 2.3): injection into one cell flows down, through a shared-wall window at the base, and rises up the paired cell, with air escaping the partner's open top. Fill-from-below is obtained from lattice topology, with no hardware change. The manifold generalization (claim 16) extends this to one hub plus N vent legs. |
+| High injection temperature fills better but carried heat deforms the part | **Heat-spread injection ordering** (claim 10, Section 6.h): a global per-layer schedule over a continuous thermal decay field `exp(-dt/tau) * exp(-dist/lambda)`, separating spatially-near injections in time, with real elapsed injection time as the temporal axis so inter-injection travel counts as cooling. |
+
+Beyond these, the contributions for which prior art is established in the sections below are principally: the **constrained-optimization formulation of tube placement** (claims 1, 5; Sections 5.a-5.i), in which weak-plane avoidance is expressed as a *soft cumulative capacity penalty subtracted from the objective* rather than as a fixed geometric offset -- so boundary spread adapts to real part geometry, presence runs, and height bounds instead of following a uniform brick-bond; the **designated vent** for air escape, which directly targets the porosity failure ORNL reported; the shape-generic multi-pattern lattice abstraction (claim 13); and the per-tube sealing, plunge, and crater-ironing models (claims 9, 11, 12).
+
+#### Empirical findings that differ from the published guidance
+
+**Periodic fill is counterproductive with an unmodified nozzle.** JanTec's recommendation to fill a cavity in several doses over time was tested and rejected. With a stock nozzle, deposition is necessarily top-down: the first dose solidifies at the channel *entry* rather than at the base, forming a plug that subsequent injections cannot pass. Periodic filling and the extended-reach nozzle are not independent techniques -- the former depends on the latter. Without the hardware modification, the correct approach inverts to a **single injection per tube at elevated temperature and flow rate**, with thermal load managed across the layer by injection ordering rather than within a tube by dose splitting.
+
+**The seal, not the flow, is the binding constraint at same-material.** With the geometry and scheduling above resolving reach and thermal load, the remaining failure mode is melting of the tube-top rim during injection: the injectate and the cell wall are the same polymer, and the elevated temperature required for flow is the same temperature that softens the seal. Sections 6.c and 6.d (per-tube Z-slam with progressive plunge, and neighbour-aware crater ironing) mitigate but do not eliminate this. It is a materials constraint rather than a geometric or scheduling one, and the indicated resolution is a dissimilar-material pairing -- a high-HDT shell (CF-Nylon, PC) with a lower-melt injectate -- for which the multi-material path is implemented (claim in Section 6.e) but which the author has not been able to test for lack of dual-extruder hardware.
 
 ---
 
@@ -60,7 +104,7 @@ All algorithms, code, and structures described in this document are dedicated to
 
 ### 2.1 Magma Tubes
 
-Hollow channels formed within the selected Magma lattice infill pattern. Each tube is defined by a single lattice cell's interior space, bounded by the infill line walls and by the layers above and below. The interior cross-section depends on the chosen pattern -- an equilateral triangle (Magma Triangle), a square (Magma Rectilinear), or a hexagon or triangle (Magma Tri-hex) -- sized by the cell's interior width (auto-calculated from nozzle geometry, or user-specified). Tubes span multiple layers vertically and are filled with injected plastic during printing.
+Hollow channels formed within the selected Magma lattice infill pattern. Each tube is defined by a single lattice cell's interior space, bounded by the infill line walls and by the layers above and below. The interior cross-section depends on the chosen pattern -- an equilateral triangle (Magma Triangle), a square (Magma Rectilinear), a hexagon or triangle (Magma Tri-hex), or a regular hexagon (Magma Honeycomb) -- sized by the cell's interior width (auto-calculated from nozzle geometry, or user-specified). Tubes span multiple layers vertically and are filled with injected plastic during printing.
 
 ### 2.2 Windows (Fenestrations)
 
@@ -428,6 +472,100 @@ for (int i = span.start; i <= span.end; ++i) {
 }
 ```
 
+### 3.h Magma Honeycomb Pattern -- Continuous Sweep with Anisotropic-Stretch Compensation
+
+Magma Honeycomb is a fourth selectable reinforcement-cell tiling alongside Magma Triangle, Magma Rectilinear, and Magma Tri-hex. It is a regular pointy-top hexagonal (honeycomb) tiling: every cell is a hexagon with a vertical left and right edge and four slanted edges, bordering six edge-sharing neighbours. Unlike Tri-hex there are no triangular vents -- two adjacent hexagons pair into an ordinary two-cell U-tube (window cut in their shared edge), exactly as triangle and rectilinear cells do. The cell size is driven by the injection tube interior width (auto-derived from nozzle geometry, or user-specified), not by an infill-density percentage: the center-to-center spacing equals the flat-to-flat spacing `s = interior_width + line_width`, and the hexagon edge is `e = s / sqrt(3)`.
+
+Because a hexagon is the Tri-hex *hub* shape, the per-shape geometry strategy reuses the hub formulas (open area, seal opening, inscribed radius, auto-sizing). The differences from Tri-hex are only the hub-vs-vent specifics: the neighbour distance is hexagon-to-hexagon (one full spacing), the window feeds the paired hexagon rather than a vent, and the wall junction is the degree-3 honeycomb vertex (three walls meeting at 120 degrees, i.e. line *ends*, not a line crossing).
+
+```cpp
+// src/libslic3r/Magma/MagmaHexCell.hpp — HexagonGeometry
+
+// Open hexagon area. Open apothem a' = s/2 - lw/2 = (s - lw)/2 = interior/2.
+// Regular hexagon area from apothem a:  2*sqrt3*a^2.
+double inset_open_area(double spacing, double line_width) const override {
+    double a = (spacing - line_width) * 0.5;          // open apothem
+    return a > 0.0 ? 2.0 * SQRT3 * a * a : 0.0;
+}
+
+// Seal opening = circumscribed circle of the open hexagon = 2*open circumradius,
+// open circumradius = open_apothem / (sqrt3/2) = (s-lw)/sqrt3.
+double opening_diameter(double spacing, double line_width) const override {
+    double s = spacing - line_width;
+    return s > 0.0 ? 2.0 * s * INV_SQRT3 : 0.0;
+}
+
+// Largest interior whose hex opening fits the nozzle flat:
+// opening = 2*interior/sqrt3 <= od  ->  interior = od * sqrt3 / 2.
+double auto_interior_width_from_od(double nozzle_od, double /*line_width*/) const override {
+    return nozzle_od > 0.0 ? std::max(0.1, nozzle_od * SQRT3 * 0.5) : 0.1;
+}
+
+// Degree-3 honeycomb junctions are line ENDS, not crossings -> no crossing overlap.
+double vertex_overlap_excess_area(double /*line_width*/) const override { return 0.0; }
+```
+
+**Continuous honeycomb sweep (the novel toolpath).** Rather than tracing each hexagon's perimeter -- which forces many direction changes and short segments -- the pattern reuses a single continuous honeycomb zigzag per *lane-pair*, the same fast, low-travel sweep used by ordinary honeycomb infill. The vertical hexagon edges fall on lanes spaced half the (stretched) flat-to-flat distance apart; one zigzag oscillates between two adjacent lanes `k` and `k+1`, drawing a vertical edge (length `e`), a slant up to the next lane's vertical (whose bottom is a hexagon vertex), that vertical, and a slant back -- a period of `2*row` in Y, phased at `oy + row*(k-1)`:
+
+```cpp
+// src/libslic3r/Fill/FillMagma.cpp — FillMagmaHoneycomb::_fill_surface_single
+
+const double row  = 1.5 * e + lw * magma::INV_SQRT3;   // lattice row spacing (Y)
+const double half = (s + 2.0 * lw) * 0.5;              // lanes on the stretched X (= m_sx/2)
+for (int k = k_min; k <= k_max; ++k) {
+    const double xL  = ox + double(k)     * half + x_off;
+    const double xR  = ox + double(k + 1) * half - x_off;
+    const double phi = oy + row * double(k - 1);
+    Polyline pl;
+    for (int j = j_min; j <= j_max; ++j) {
+        const double b = phi + 2.0 * row * double(j);
+        pl.points.push_back(Point(scale_(xL), scale_(b - e * 0.5)));
+        pl.points.push_back(Point(scale_(xL), scale_(b + e * 0.5)));
+        pl.points.push_back(Point(scale_(xR), scale_(b + row - e * 0.5)));
+        pl.points.push_back(Point(scale_(xR), scale_(b + row + e * 0.5)));
+    }
+    // ...
+}
+```
+
+A consequence of this lane-pair sweep is that every vertical lane is traced by *both* of the lane-pairs that border it: the vertical cell walls are drawn **doubled** (two beads, total width `2*lw`, centred on the edge, intruding `lw` into the open cell), while the slanted walls are drawn **single** (one bead, intruding `lw/2`). Left uncompensated, the open cross-section would come out skewed -- its vertical edges effectively longer than its slants -- and would not be a regular hexagon, defeating the round-nozzle seal that depends on a regular opening.
+
+**Anisotropic lattice pre-stretch.** To make the *open* tube a true regular hexagon despite the asymmetric wall thickness, the lattice is pre-expanded on each affected axis by exactly the wall geometry, so that after the doubled verticals and single slants intrude, what remains is a regular hexagon of edge `e`:
+
+```cpp
+// src/libslic3r/Magma/MagmaHexCell.hpp — HexLattice
+//   flat-to-flat (X): + 2*lw   (the doubled wall, lw each side)            -> m_sx
+//   top/bottom vertex (Y): + lw/sqrt3  (the slant inset lifts the apex)    -> m_vtop
+//   row spacing (Y): + lw/sqrt3  (= keeps the tiling closed)               -> m_row
+explicit HexLattice(double cell_spacing, double offset_x = 0.0, double offset_y = 0.0,
+                    double line_width = 0.0)
+    : m_cell_spacing(cell_spacing)
+    , m_edge(hex_edge_length(cell_spacing))                       // e = s / sqrt3
+    , m_sx  (cell_spacing + 2.0 * std::max(0.0, line_width))      // stretched flat-to-flat
+    , m_vtop(m_edge + std::max(0.0, line_width) * INV_SQRT3)      // extended top/bottom vertex
+    , m_row (1.5 * m_edge + std::max(0.0, line_width) * INV_SQRT3)// extended row spacing
+    , m_offset_x(offset_x), m_offset_y(offset_y)
+{}
+
+std::vector<Vec2d> cell_corners(const CellId &c) const override {
+    const Vec2d ctr = center(c.a, c.b);
+    const double hx = m_sx * 0.5;     // half (stretched) flat-to-flat
+    const double hy = m_edge * 0.5;   // half edge length (vertical edge stays e)
+    return { Vec2d(ctr.x() + hx, ctr.y() + hy),    //  30 deg (upper right)
+             Vec2d(ctr.x(),      ctr.y() + m_vtop),//  90 deg (top vertex, extended)
+             Vec2d(ctr.x() - hx, ctr.y() + hy),    // 150 deg (upper left)
+             Vec2d(ctr.x() - hx, ctr.y() - hy),    // 210 deg (lower left)
+             Vec2d(ctr.x(),      ctr.y() - m_vtop),// 270 deg (bottom vertex, extended)
+             Vec2d(ctr.x() + hx, ctr.y() - hy) };  // 330 deg (lower right)
+}
+```
+
+The vertical-edge length is held at `e` (the `+-hy` corners), while the horizontal span gains `2*lw` and the top/bottom apexes and row pitch gain `lw/sqrt(3)`. With all three adjustments, the open hexagon's vertical and slanted edges come out exactly equal (both `e`): a regular open tube that the round/conical injection nozzle can seal as in the other patterns. The hexes are addressed by axial `(q, r)` coordinates packed into the shared `CellId`, with cube-rounding for point-to-cell lookup and the standard six pointy-top axial neighbours, so the same tube-assignment solver, U-tube pairing, window placement, injection, and preview pipeline (claim 13) operate unchanged.
+
+**Windows.** Each open pair's shared wall is removed by subtracting a rectangle laid over the shared edge, wide enough (`x_off + lw` half-width) to span both doubled verticals and shortened by a bead so the hexagon corners survive, then the swept polylines are clipped to the region and chained into continuous sweeps. Window height is auto-derived from the partner hexagon's open cross-section (`auto_window_height = open_area / open_edge`), matching the cross-section flow area as in the triangle and square patterns.
+
+**Prior-art scope.** This disclosure establishes prior art for: (a) a regular-hexagon (honeycomb) vertical-reinforcement injection-infill tiling whose cell size is set by the nozzle-derived tube interior width rather than an infill density; (b) generating its toolpath as a single continuous lane-pair honeycomb zigzag (rather than per-hexagon perimeters) for fast, low-travel printing; (c) the resulting doubled vertical walls / single slanted walls produced by that sweep; and (d) anisotropically pre-stretching the lattice (flat-to-flat `+2*lw`, vertex `+lw/sqrt(3)`, row pitch `+lw/sqrt(3)`) so that the *open* injectable cross-section is a regular hexagon despite the asymmetric deposited wall thickness, with U-tube pairing and shared-wall windows as in the other Magma patterns.
+
 ---
 
 ## 4. IMPLEMENTED SYSTEM -- Tube Assignment
@@ -609,7 +747,9 @@ for (const TriangleCell &cell : candidates) {
 
 Salvage tubes are marked with `is_salvaged = true` to distinguish them from default deterministic pairs. Cells with no viable partner are marked as solid fill (empty pair index vector).
 
-### 4.f Per-Layer Tube Volume Computation
+### 4.f Per-Layer Tube Volume Computation (closed-form estimate, superseded by measured volumes)
+
+**Historical note:** the closed-form per-layer volume estimate below -- accumulate ideal/clipped cell areas, add a geometric window-gap term, subtract a per-pattern vertex-overlap term -- has been **superseded by a direct measurement of the cavity from the deposited toolpath** (Section 4.g), which captures the side-by-side doubled walls, the window gap, and part-edge clipping in one operation from the real footprint. The closed-form estimate is retained here for prior art; the overlap-excess reasoning it introduced lives on as the one residual that the footprint measurement cannot see -- now applied as a single self-scaling, flow-correction-aware subtraction sized to the actual deposited line width (Section 4.h), rather than the conditional term used here.
 
 Tube volume is computed by accumulating per-layer cell areas (in scaled squared units) multiplied by per-layer heights, then adding window gap volume and subtracting triangle vertex overlap excess:
 
@@ -645,6 +785,109 @@ for (UTubePair &pair : m_pairs) {
 ```
 
 The window gap volume uses the inset side length (not the full edge) since interiors are smaller than the outer triangle. Window layer membership is checked via mm-based Z comparison (`bottom_z() < pair.window_end_z`) rather than layer counts, ensuring correct behavior with variable layer heights. The overlap excess subtraction accounts for triangle vertex overlap regions where 3 line families cross at 60 degrees, depositing material twice -- this excess physically occupies tube interior space, so injection volume is reduced accordingly.
+
+### 4.g Measured Injection Volume from the Deposited Toolpath
+
+Rather than estimating each U-tube's injectable cavity from closed-form cell geometry (Section 4.f), the shipping system **measures** that cavity from the actually generated infill. `measure_volumes()` runs *after* `PrintObject::infill()`, when each layer region's `fills` hold the real extrusion paths. For each layer of a pair's run, the injectable void at that layer is the union of the pair's cell polygons (`cell_a`, `cell_b`, and any extra tri-hex vent legs) intersected with the reinforcement zone, *minus* the footprint of the deposited Magma walls (the polygons the extrusion physically covers, from `polygons_covered_by_width`). Summed over the run times each layer's height, this is the dosed injection volume:
+
+```cpp
+// src/libslic3r/Magma/MagmaTubeMap.cpp — measure_volumes()
+//
+// For each pair, the injected cavity at a layer is  (cell_a u cell_b u vents) n zone  minus
+// the deposited magma walls. Summed over the run x layer height, that single measurement nets
+// out the side-by-side doubled walls, the window gap, and part-edge clipping from the real
+// footprint; the residual over-extrusion where lines cross is corrected separately (see 4.h).
+// Runs after PrintObject::infill(), when fills hold the real paths.
+
+// Per-layer cache (shared by all pairs on a layer): the magma zone + deposited walls.
+for (int lid : used) {
+    const Layer *layer = /* layer with id lid */;
+    ExPolygons zone; Polygons walls;
+    for (const LayerRegion *lr : layer->regions()) {
+        const PrintRegionConfig &rc = lr->region().config();
+        if (!(rc.dual_infill_enabled || is_magma_pattern(rc.sparse_infill_pattern.value)))
+            continue;
+        for (const Surface &s : lr->fill_surfaces.surfaces)
+            if (s.surface_type == stInternal) zone.push_back(s.expolygon);
+        append(walls, lr->fills.polygons_covered_by_width(0.f));   // actual deposited footprint
+    }
+    zone_by_layer[lid]  = union_ex(zone);
+    walls_by_layer[lid] = union_ex(walls);
+}
+
+// ... then per pair, per layer:
+ExPolygons combined = intersection_ex(union_ex(cells), zone_by_layer[lid]);
+const ExPolygons &walls = walls_by_layer[lid];
+ExPolygons cavity = walls.empty() ? combined : diff_ex(combined, walls);   // void = cells n zone − walls
+double a2 = 0.0;
+for (const ExPolygon &ep : cavity) a2 += std::abs(ep.area());
+vol += unscale<double>(unscale<double>(a2)) * h_by_layer[lid];
+```
+
+Because the measurement uses the *real* deposited footprint, the same single operation accounts for effects that the closed-form estimate had to model with separate per-pattern terms: vertical walls that the toolpath draws doubled *side by side* (Section 3.h, which the footprint sees as a wider solid wall), the window gap (its missing wall simply leaves more void), and clipping of cells at the part edge. The one effect the footprint cannot see -- the extra plastic where lines CROSS and *stack*, which `polygons_covered_by_width` merges into a single union so the second bead's bulge into the void is never recorded -- is removed by the companion self-scaling correction of Section 4.h. The per-layer zone and wall polygons are cached once per layer and reused across every pair touching that layer. The result is stored as `pair.volume_mm3`, and only pairs with positive measured volume contribute an injection cap layer.
+
+**Prior-art scope.** This disclosure establishes prior art for determining the injected-material dose for an in-situ printed channel by **measuring** its per-layer cavity from the generated toolpath -- (cell polygons intersected with the infill zone) minus the polygons covered by the deposited extrusion width, summed over the channel's layer range times layer height -- rather than from a closed-form cross-section, so that a single geometric difference captures side-by-side doubled walls, the window gap, and part-edge clipping with no pattern-specific correction terms (the residual stacking over-extrusion where lines cross being removed by the companion self-scaling correction of Section 4.h).
+
+### 4.h Flow-Correction-Aware Overlap Compensation (single self-scaling correction)
+
+Where infill line families cross, the toolpath deposits material twice, over-extruding at each junction, and the second bead's bulge squeezes into the cavity. Because the deposited-wall footprint of Section 4.g (`polygons_covered_by_width`) merges the two crossing beads into a single union, that bulge is never recorded by the measurement, so the injection volume is **always** corrected for it. The correction is a **single self-scaling subtraction**, sized to the *actual deposited* line width -- not two mutually-exclusive levers, and not gated on any setting.
+
+The `magma_overlap_line_correction` setting (default off) does **not** decide whether the volume is corrected; it only changes how the lines are PRINTED, and therefore what the deposited width is:
+
+- **Setting OFF (default).** The infill lines print at full nominal width `w`. The effective width is `w_eff = w`, and the FULL per-cell crossing overlap is subtracted from the measured cavity.
+- **Setting ON.** Infill flow at the Magma pattern is reduced so the deposited lines print thinner, avoiding over-extruded crossings *on the part itself* (a print-quality benefit, and avoidance of sub-nozzle-width artifacts). The reduction is floored at a minimum bead width (`magma_overlap_min_width`, default ~90% of nozzle diameter), so the lines do not vanish and the crossings still over-extrude a little. The effective width becomes `w_eff = w_corrected`, and only the small RESIDUAL crossing overlap of the thinned lines is subtracted.
+
+The deposited (effective) width is resolved once, in `build()`; the volume subtraction (below) then always evaluates the per-vertex excess at that width:
+
+```cpp
+// src/libslic3r/Magma/MagmaTubeMap.cpp — build()
+// Two correction levers:
+//   1. Line width: reduce infill flow so deposited width shrinks from w to w_eff.
+//   2. Injection volume: subtract per-layer excess from tube fill volume.
+//      ALWAYS applied, regardless of the line-width correction setting.
+map->m_effective_line_width = map->m_line_width;                        // w  (setting off)
+double excess_frac = m_geometry->line_overlap_excess_fraction(S, w);    // doubled fraction
+if (m_overlap_line_correction && excess_frac > 0.0) {
+    double w_corrected = std::max(min_width, w * (1.0 - excess_frac));  // floored ~90% nozzle
+    map->m_overlap_flow_correction = w_corrected / w;                   // applied to infill flow
+    map->m_effective_line_width    = w_corrected;                       // w_eff (setting on)
+}
+```
+
+The per-vertex excess area is a shape constant supplied by the geometry strategy, evaluated at the deposited width `lw_eff = m_effective_line_width` and apportioned per cell:
+
+| Pattern | Per-vertex excess area (at deposited width `lw_eff`) | Apportionment |
+|---|---|---|
+| Triangle | `(3*sqrt(3)/4) * lw_eff^2` | per cell (2 cells/pair) |
+| Rectilinear (square) | `lw_eff^2` | per cell (2 cells/pair) |
+| Tri-hex | `(2/sqrt(3)) * lw_eff^2` | charged to incident cells by corner count: hub 6, vent 3, divided by 4 |
+| Honeycomb | `0` (degree-3 junctions are line ends, not crossings) | n/a |
+
+```cpp
+// src/libslic3r/Magma/MagmaTubeMap.cpp — measure_volumes()
+// The injection volume is ALWAYS corrected for vertex overlap, evaluated at the ACTUAL
+// deposited width m_effective_line_width: residual when the flow correction is on (thinned
+// lines), full when off. It is NOT double-counting the footprint — polygons_covered_by_width
+// merges crossing lines into a single union, so the second line's deposit (which bulges into
+// the void) is never captured there and must be subtracted here.
+const double excess_unit = m_geometry->vertex_overlap_excess_area(m_effective_line_width);
+
+// per pair: apportion the excess per cell ...
+if (m_pattern == ipMagmaTriHex) {
+    auto charge = [&](const TriangleCell &c) {
+        return 0.25 * ((c.kind == THK_HEX) ? 6.0 : 3.0) * excess_unit;   // corner count / 4
+    };
+    excess_rate = charge(pair.cell_a) + charge(pair.cell_b);
+    for (const TriangleCell &ev : pair.extra_vents) excess_rate += charge(ev);
+} else {
+    excess_rate = excess_unit * double(2 + int(pair.extra_vents.size()));
+}
+// ... per layer:  vol -= excess_rate * h_by_layer[lid];   (always; zero for honeycomb)
+```
+
+Because the subtraction is sized to whatever width was actually deposited, it is one self-scaling term: it shrinks to a residual when the lines were thinned and grows to the full overlap when they were not -- corrected once in both cases, never double-counted. The novelty is precisely this: the overlap is corrected exactly once, sized to what was actually deposited, *regardless* of the flow-correction setting; the flow correction is a print-quality lever that shifts where the line-width reduction happens, not whether the volume is corrected. (Honeycomb's vertex excess is zero, so it is unaffected -- its doubled *vertical walls* run side by side, not stacked, so the footprint already captures them; only stacking line crossings need this term.)
+
+**Prior-art scope.** This disclosure establishes prior art for correcting the over-extrusion at infill line crossings with a **single, always-applied, self-scaling** subtraction from a toolpath-measured cavity (Section 4.g), sized to the actual deposited line width -- so the correction is a residual when an optional flow-reduction print-quality lever has thinned the lines and the full overlap when it has not -- such that the crossing overlap is corrected exactly once and never double-counted regardless of the flow-correction setting, with the per-cell overlap area a shape-specific constant apportioned by incident-cell corner count (zero for the honeycomb pattern, whose junctions are line ends rather than crossings).
 
 ---
 
@@ -1484,7 +1727,7 @@ The algorithm is: erode the SDF to find a thick core (regions where the interior
 
 ### 9.b Hexagonal / Tri-hex Infill Pattern
 
-**Status update: IMPLEMENTED as Magma Tri-hex.** The pure-hexagon lattice below was the original design; it now ships as **Magma Tri-hex**, a hybrid lattice of hexagonal cells plus the triangular cells that tile the gaps between them. Tri-hex uses **vent-based injection allocation** (a single injection serving multiple connected vents) rather than only pairwise U-tube coupling, and runs on the shared per-shape lattice/solver/injection pipeline (claim 13). Mixing triangular cells between the hexagons recovers the triangular pattern's continuous line families while keeping the hexagonal cells' multi-neighbour pairing. The original pure-hex design is retained below for prior art.
+**Status update: IMPLEMENTED as both Magma Tri-hex and Magma Honeycomb.** The pure-hexagon lattice below was the original design. It now ships in two forms: (1) as the **Magma Honeycomb** pattern (Section 3.h), a direct regular-hexagon tiling whose continuous lane-pair sweep with anisotropic-stretch compensation resolves the print-speed trade-off that originally motivated the hybrid; and (2) as **Magma Tri-hex**, a hybrid lattice of hexagonal cells plus the triangular cells that tile the gaps between them. Tri-hex uses **vent-based injection allocation** (a single injection serving multiple connected vents) rather than only pairwise U-tube coupling, and runs on the shared per-shape lattice/solver/injection pipeline (claim 13). Mixing triangular cells between the hexagons recovers the triangular pattern's continuous line families while keeping the hexagonal cells' multi-neighbour pairing. The original pure-hex design is retained below for prior art.
 
 **How it works (Magma Tri-hex):**
 
@@ -1667,7 +1910,7 @@ Full text of the CC0 dedication: https://creativecommons.org/publicdomain/zero/1
 
 This document serves as a **Defensive Publication**. All concepts, methods, algorithms, code, and structures described herein are disclosed to the public to establish **Prior Art**, preventing the patenting of these ideas by third parties. This work is dedicated to the Public Domain under the Creative Commons CC0 1.0 Universal dedication.
 
-The original publication date of **February 9, 2026** establishes the priority date for Sections 1-4, 6-12. The update date of **March 16, 2026** establishes the priority date for Section 5 (Optimized Tube Assignment). The update date of **June 23, 2026** establishes the priority date for the multi-pattern lattice abstraction (Magma Rectilinear and Magma Tri-hex), the dual cell-presence gate, the per-tube actual-opening Z-slam sealing model, and the clipped-cavity centroid injection point (novel claims 13-15). Any patent application filed after the applicable date covering substantially similar subject matter is anticipated by this disclosure.
+The original publication date of **February 9, 2026** establishes the priority date for Sections 1-4, 6-12. The update date of **March 16, 2026** establishes the priority date for Section 5 (Optimized Tube Assignment). The update date of **June 23, 2026** establishes the priority date for the multi-pattern lattice abstraction (Magma Rectilinear and Magma Tri-hex), the dual cell-presence gate, the per-tube actual-opening Z-slam sealing model, and the clipped-cavity centroid injection point (novel claims 13-15). The update date of **June 25, 2026** establishes the priority date for the Magma Honeycomb pattern with continuous-sweep doubled-wall anisotropic-stretch compensation (Section 3.h), the measured injection-volume determination from the deposited toolpath (Section 4.g), and the single always-applied, self-scaling overlap compensation sized to the deposited line width (Section 4.h) -- novel claims 17-19. Any patent application filed after the applicable date covering substantially similar subject matter is anticipated by this disclosure.
 
 The disclosed system encompasses, but is not limited to:
 
@@ -1721,6 +1964,9 @@ The disclosed system encompasses, but is not limited to:
 48. Dual cell-presence gating combining a minimum clipped-area fraction with a minimum injection-point clearance to the opening boundary
 49. Per-tube injection sealing depth computed from each tube's actual (boundary-clipped) opening rather than a single global ideal
 50. Clipped-cavity centroid injection-point selection (inscribed-circle centre for regular cells) for boundary-clipped cells
+51. Regular-hexagon (honeycomb) Magma lattice whose cell size is set by the nozzle-derived tube interior width, generated as a single continuous lane-pair honeycomb sweep, with anisotropic lattice pre-stretch (flat-to-flat +2*line_width, vertex and row pitch +line_width/sqrt(3)) compensating the sweep's doubled vertical walls so the open injectable cross-section is a regular hexagon
+52. Measuring an in-situ printed channel's per-layer injectable cavity from the generated toolpath (cell polygons intersected with the infill zone, minus the deposited extrusion-width footprint) rather than estimating it from a closed-form cross-section, capturing side-by-side doubled walls, window gaps, and part-edge clipping in one operation
+53. A single, always-applied, self-scaling overlap correction subtracted from a toolpath-measured cavity, sized to the actual deposited line width, so line-crossing over-extrusion is corrected exactly once and never double-counted -- a residual when an optional print-quality flow-reduction lever has thinned the lines, the full overlap when it has not -- with the per-cell overlap area a shape-specific constant apportioned by incident-cell corner count (zero for the honeycomb pattern, whose junctions are line ends rather than crossings)
 
 ### Source Code Availability
 
@@ -1740,7 +1986,7 @@ The complete source code implementing the IMPLEMENTED portions of this disclosur
     "@type": "Organization",
     "name": "Magma Project Contributors"
   },
-  "description": "Public domain disclosure of a software system for vertical reinforcement of FDM 3D printed parts using a selectable lattice infill (triangular, rectilinear/square, or tri-hex hexagon+triangle) with hollow channels filled by per-layer injection during printing. Establishes prior art for coordinate systems, a shape-generic per-pattern lattice abstraction, spiral interlock, coupled thermal-pressure injection models, two-stage greedy/CP-SAT tube assignment solvers with integer micron arithmetic and discrete domain optimization, a dual area+clearance cell-presence gate, per-tube actual-opening Z-slam sealing, clipped-cavity centroid injection points, zone boundary generation, safe park positioning, and G-code visualization protocols.",
+  "description": "Public domain disclosure of a software system for vertical reinforcement of FDM 3D printed parts using a selectable lattice infill (triangular, rectilinear/square, tri-hex hexagon+triangle, or regular-hexagon honeycomb) with hollow channels filled by per-layer injection during printing. Establishes prior art for coordinate systems, a shape-generic per-pattern lattice abstraction, a continuous-sweep honeycomb pattern with anisotropic lattice pre-stretch compensating doubled vertical walls, spiral interlock, coupled thermal-pressure injection models, two-stage greedy/CP-SAT tube assignment solvers with integer micron arithmetic and discrete domain optimization, a dual area+clearance cell-presence gate, per-tube actual-opening Z-slam sealing, clipped-cavity centroid injection points, measuring each channel's injectable cavity from the deposited toolpath, a single always-applied self-scaling overlap correction sized to the deposited line width, zone boundary generation, safe park positioning, and G-code visualization protocols.",
   "license": "https://creativecommons.org/publicdomain/zero/1.0/",
   "keywords": [
     "FDM 3D printing",
@@ -1793,7 +2039,18 @@ The complete source code implementing the IMPLEMENTED portions of this disclosur
     "spatial block partitioning",
     "cumulative scheduling",
     "safe park positioning",
-    "parallel transport frame"
+    "parallel transport frame",
+    "honeycomb infill pattern",
+    "regular hexagon tiling",
+    "continuous honeycomb sweep",
+    "anisotropic lattice stretch",
+    "doubled wall compensation",
+    "measured injection volume",
+    "deposited toolpath volume",
+    "polygons covered by width",
+    "overlap flow correction",
+    "line crossing over-extrusion",
+    "vertex overlap compensation"
   ],
   "inLanguage": "en",
   "isAccessibleForFree": true,

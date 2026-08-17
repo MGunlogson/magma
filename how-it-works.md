@@ -8,23 +8,25 @@ Magma replaces normal infill with a lattice that forms hollow U-shaped vertical 
 
 The infill itself is a modified version of an ordinary infill pattern, with additional logic for calculating neighboring pairs, ensuring min and max tube height bounds, drawing "windows" at the bottom of assigned tube pairs for injection, and injection code for when the layer reaches the top of each tube. Additionally, there's special rendering code so you can view the tubes and injection process in the slice preview.
 
-### The three patterns
+### The four patterns
 
-You pick the pattern with `sparse_infill_pattern`:
+You pick the pattern with `sparse_infill_pattern`; the four, in the order they appear in the selector:
 
-- **Magma Triangle** — equilateral-triangle cells, three families of 60-degree lines (the original Magma pattern).
+- **Magma Honeycomb** — a regular pointy-top hexagonal tiling. Like the other patterns, the hexagon size comes from the tube interior width, not the infill density. Its toolpath reuses OrcaSlicer's native honeycomb path — one fast, continuous vertical zigzag per lane-pair, which keeps travel (and print time) low. A side effect of that zigzag is that the vertical walls get drawn twice (doubled) while the slanted walls stay single; the doubling is exactly what makes Orca's honeycomb so quick to print, and Magma keeps that speed. So the doubled walls don't squish the cell, the lattice is pre-expanded, so the open, injectable tube still comes out a regular hexagon.
 - **Magma Rectilinear** — square cells from two perpendicular single-wall line families, with square windows on the shared edge.
+- **Magma Triangle** — equilateral-triangle cells, three families of 60-degree lines (the original Magma pattern).
 - **Magma Tri-hex** — hexagon cells (hubs) with triangle cells filling the gaps (vents). Instead of pairing two cells into a U, one injection fills a *manifold*: a hub plus several equal-length vent legs, all filled in one shot. A second pass hands each still-empty vent to whichever nearby hub-tube can fill the most of it, so fill follows the geometry — more legs in open areas, gracefully down to a plain U-tube where the part is pinched.
 
 | | Cells & lines | Injection unit | Notes / when to use |
 |---|---|---|---|
-| **Triangle** | equilateral triangles, 3 line families at 60° | U-tube (2 cells) | Packs the most tubes per area, so it's the **default** — maximum reinforcement. Opening/interior seal ratio 2.0 (the nozzle flat has to cover the widest opening). |
+| **Honeycomb** | regular hexagons, native honeycomb zigzag | U-tube (2 cells) | Reuses Orca's fast, low-travel honeycomb toolpath, so it prints quickly. Vertical walls come out doubled, and the lattice is pre-expanded so the open tube stays a regular hexagon. No line crossings to over-extrude. |
 | **Rectilinear** | squares, 2 perpendicular families at 90° | U-tube (2 cells) | **Easiest to seal** (ratio √2 ≈ 1.41) and fastest to print (2 straight families, not 3), at fewer tubes per area. Good for blocky / orthogonal parts. |
+| **Triangle** | equilateral triangles, 3 line families at 60° | U-tube (2 cells) | Packs the most tubes per area, so it's the **default** — maximum reinforcement. Opening/interior seal ratio 2.0 (the nozzle flat has to cover the widest opening). |
 | **Tri-hex** | hexagon hubs + triangle vents | manifold (hub + N vents) | One injection fills a hub plus many legs, so it covers **open areas** efficiently and degrades gracefully to a plain U-tube where the part pinches. |
 
-All three share the same solver, injection sequence, sealing, and preview — only the cell shape, the window placement, and the line families differ. Pick one with `sparse_infill_pattern` (or, in a dual-zone print, with the outer-zone pattern).
+All four share the same solver, injection sequence, sealing, and preview — only the cell shape, the window placement, the line families (and, for Honeycomb, the doubled-wall toolpath) differ. Pick one with `sparse_infill_pattern` (or, in a dual-zone print, with the outer-zone pattern).
 
-A cell is only kept on a given layer if its clipped cross-section is at least 70% of the ideal cell area and the injection point still has room to seal against its opening (see [the solver](#staggering-the-solver)); pinched or clipped-away cells are dropped, and a tube's injected volume scales with each layer's actual clipped area.
+A cell is only kept on a given layer if its clipped cross-section is at least 70% of the ideal cell area and the injection point still has room to seal against its opening (see [the solver](#staggering-the-solver)); pinched or clipped-away cells are dropped, and the volume injected into each tube is measured directly from the printed lattice, layer by layer (see [How much gets injected](#how-much-gets-injected)).
 
 ![One printed layer, top down](assets/screenshots/01-triangle-infill-windows.png)
 
@@ -81,6 +83,12 @@ Injection runs as the print climbs, not all at the end. At the right height the 
 ![Mid-print injection](assets/screenshots/04-injection-paths.png)
 
 *Each red column is one injection event.*
+
+### How much gets injected
+
+The volume pushed into each U-tube is **measured from the actual printed toolpath**, not estimated from the cell geometry. Once the infill is generated, Magma walks each layer of a tube's run and takes the open void — the pair's cells inside the Magma zone, minus the footprint of the walls actually deposited there — and multiplies by the layer height. Summed up the run, that is the real injectable cavity. Because it is literally the leftover air, one measurement automatically accounts for doubled walls, overlapping line crossings, the window gap, and any cells clipped by the part edge, with no per-pattern math.
+
+One related knob: **overlap flow correction** (`magma_overlap_line_correction`, off by default). Where infill lines cross they deposit plastic twice, so the injected volume is **always** corrected for that overlap — sized to whatever line width was actually laid down, which means it can never double-count or over-inject. The setting only changes how the lines *print*. Left off (the default), the lines print full width and the volume subtracts the full overlap. Turned on — only worthwhile if your printer can lay down lines thinner than its nozzle — the infill flow is reduced so the crossing lines come out thinner (floored around 90% of the nozzle width), leaving just a small residual overlap for the volume to subtract. Honeycomb has no crossings, so there is no overlap to correct either way.
 
 ### Sealing depth (z-slam)
 

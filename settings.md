@@ -31,17 +31,19 @@ A cell is only kept on a layer when its clipped tube cross-section is at least 7
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `sparse_infill_pattern` | (your choice) | Selecting Magma Triangle / Magma Rectilinear / Magma Tri-hex here is what turns on Magma. Triangle = equilateral-triangle cells; Rectilinear = square cells; Tri-hex = mixed hexagon + triangle cells |
-| `dual_infill_outer_pattern` | Magma Triangle | Which Magma pattern fills the outer zone when dual infill is on (any of Triangle / Rectilinear / Tri-hex) |
+| `sparse_infill_pattern` | (your choice) | Selecting Magma Honeycomb / Magma Rectilinear / Magma Triangle / Magma Tri-hex here is what turns on Magma (dropdown order). Honeycomb = regular pointy-top hexagon cells, drawn with OrcaSlicer's native honeycomb toolpath (a fast continuous vertical zigzag) for print speed — it traces the vertical walls doubled and the slants single, and the lattice is pre-expanded so the open tube is still a regular hexagon; Rectilinear = square cells; Triangle = equilateral-triangle cells; Tri-hex = mixed hexagon + triangle cells. Cell size comes from the tube interior width, not infill density |
+| `dual_infill_outer_pattern` | Magma Triangle | Which Magma pattern fills the outer zone when dual infill is on (any of Honeycomb / Rectilinear / Triangle / Tri-hex) |
 | `magma_tube_width_mode` | Auto | Auto (from nozzle tip flat) or Manual |
 | `magma_nozzle_outer_diameter` | 0 (3x bore) | Measured diameter of the flat at the nozzle tip — the seal size (label: "Nozzle tip flat") |
 | `magma_nozzle_cone_half_angle` | 30° (range 5–60°) | Half-angle of the cone above the tip flat; Auto Z-slam uses it to size the press depth |
 | `magma_interior_width` | 3.0mm | Manual tube interior width |
 | `magma_spiral_interlock` | off | Helical tube paths for pullout resistance |
-| `magma_overlap_line_correction` | off | Reduce line width where line families overlap (triangle 60°, square 90°, tri-hex vertices), so the doubled bead isn't over-extruded (injection volume is corrected for overlap regardless) |
+| `magma_overlap_line_correction` | off | Where line families cross at a vertex (triangle 60°, square 90°, tri-hex vertices) the bead is laid down twice and over-extrudes. The injection volume is **always** corrected for this overlap, sized to the actual deposited line width, so the dose never over-injects regardless of this setting. The setting only controls how the lines **print**, not whether the volume is corrected. ON: infill flow is reduced so the crossing lines print thinner (floored at ~90% of nozzle width by `magma_overlap_min_width`), so only the small *residual* overlap of the thinned lines is subtracted. OFF (default; for printers that can't reliably print sub-nozzle-width lines): lines print full width, so the *full* overlap is subtracted. The correction is always sized to what was actually deposited, so the overlap is counted exactly once — never double-counted. (UI label: "Adjust line width for vertex overlap") |
 | `magma_overlap_min_width` | 0 (auto: 90% of nozzle) | Floor for overlap-corrected line width (%) |
 
 ## Magma Tubes (Strength tab)
+
+Injection volume is measured from the actual deposited toolpath after the infill is generated — this automatically captures the doubled walls, line-crossing overlaps, the window gap, and part-edge clipping — replacing the old geometric estimate.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
@@ -62,6 +64,7 @@ A cell is only kept on a layer when its clipped tube cross-section is at least 7
 | `magma_injection_speed` | 10 mm3/s | Volumetric injection flow rate (capped at the filament's max volumetric speed; slicing warns if you set it higher) |
 | `magma_injection_ordering` | Minimize travel | Tube visit order per layer: Minimize travel (shortest path) or Spread heat (separates nearby injections in time so combined heat does not melt neighbouring cells) |
 | `magma_injection_z_slam_auto` | on | Compute Z-slam depth from nozzle geometry instead of by hand; depth is figured per tube from that tube's actual cap opening, the tip flat, and the cone half-angle. When on, the manual depth below is ignored. Recommended on |
+| `magma_injection_z_slam_offset` | 0mm | Fine-tune the auto-calculated Z-slam depth by adding this amount to it. The geometric estimate can press a little short of a reliable seal — especially on hexagon tubes — so a small positive value firms it up. Positive = deeper slam (firmer seal, crushes a bit more of the tube top); negative = gentler press (use if the auto depth is over-sealing). Applied on top of each tube's auto depth, then clamped to the slam limit. Only used when Auto Z-slam is on |
 | `magma_injection_z_slam` | 0.05mm | Manual nozzle depression depth for sealing (ignored when Auto Z-slam is on; UI warns and resets values above 3.5mm; depth depends on nozzle geometry, so measure your shoulder flat) |
 | `magma_injection_plunge` | on | "Slam-melt": ramp the nozzle deeper through the injection so the hot tip keeps the seal pressed as the tube fills (drives plastic down instead of mushrooming out) |
 | `magma_injection_plunge_depth` | 0.4mm | Extra depth the nozzle ramps to by the end of injection, on top of the seal depth |
