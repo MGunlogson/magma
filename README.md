@@ -98,7 +98,7 @@ Other things worth trying: a high-flow hotend, short tubes (down to about 4mm), 
 
 To see it work: slice a part with Magma Rectilinear infill, then in the preview hide everything except injection lines. The U-tubes appear.
 
-Starting settings — these are the shipped defaults, and they are the values behind the cleanest test print so far. On a fresh install the only one you *must* set yourself is the nozzle tip flat:
+Starting settings — these are the defaults, and they are the values behind the cleanest test print so far. On a fresh install the only one you *must* set yourself is the nozzle tip flat:
 
 | Setting | Value |
 |---|---|

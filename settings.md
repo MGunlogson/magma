@@ -39,7 +39,7 @@ A cell is only kept on a layer when its clipped tube cross-section is at least 7
 | `magma_interior_width` | 3.0mm | Manual tube interior width |
 | `magma_spiral_interlock` | off | Helical tube paths for pullout resistance |
 
-Line crossings double-deposit material, and the injection volume is **always** corrected for it, sized to the deposited line width. The old `magma_overlap_line_correction` / `magma_overlap_min_width` pair — which additionally thinned every bead so the crossings over-extruded less — has been **removed**. It shipped off by default (changing line width causes its own print problems) and was the only reason the tube map carried two different line widths, which had produced several places that disagreed about which one to use. Vertex overlap is a geometry problem; thinning every line to average out a local excess was the wrong lever. Set a lower sparse infill line width by hand if you want the old behaviour. (Still in git history.)
+Line crossings double-deposit material, and the injection volume is **always** corrected for it, sized to the deposited line width. The old `magma_overlap_line_correction` / `magma_overlap_min_width` pair — which additionally thinned every bead so the crossings over-extruded less — has been **removed**. It defaulted to off (changing line width causes its own print problems) and was the only reason the tube map carried two different line widths, which had produced several places that disagreed about which one to use. Vertex overlap is a geometry problem; thinning every line to average out a local excess was the wrong lever. Set a lower sparse infill line width by hand if you want the old behaviour. (Still in git history.)
 
 ## Magma Tubes (Strength tab)
 

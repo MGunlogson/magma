@@ -844,8 +844,8 @@ Because the measurement uses the *real* deposited footprint, the same single ope
 > code paths that disagreed about which width to use. Lines now always print at full nominal
 > width and the full crossing overlap is always subtracted; anyone wanting thinner beads can set
 > a lower sparse infill line width directly. The implementation remains in the project's git
-> history, and the disclosure below is retained in full as prior art — the mechanism was built,
-> shipped and published, and its removal is a product decision, not an abandonment of the idea.
+> history, and the disclosure below is retained in full as prior art — the mechanism was built
+> and published, and its removal is a product decision, not an abandonment of the idea.
 
 Where infill line families cross, the toolpath deposits material twice, over-extruding at each junction, and the second bead's bulge squeezes into the cavity. Because the deposited-wall footprint of Section 4.g (`polygons_covered_by_width`) merges the two crossing beads into a single union, that bulge is never recorded by the measurement, so the injection volume is **always** corrected for it. The correction is a **single self-scaling subtraction**, sized to the *actual deposited* line width -- not two mutually-exclusive levers, and not gated on any setting.
 
