@@ -86,8 +86,8 @@ matching, so it can never strand a hub.
 
 - Per-cell clipped area carries each vent's volume → **no per-kind geometry methods**.
 - Hex hub geometry (`edge_length`, `inset_open_area`, `opening_diameter`,
-  `inscribed_radius`, `neighbor_centroid_distance` (hex↔triangle), `interlock_radius`,
-  `auto_window_height`, `auto_interior_width_from_od`) drops into a `HexGeometry`
+  `inscribed_radius`, `neighbor_centroid_distance` (hex↔triangle),
+  `auto_window_height`, `interior_for_opening`) drops into a `HexGeometry`
   (`MagmaGeometry` impl) used for the hub.
 - `max_neighbors()` returns the max (6); `neighbors()` already returns variable arity.
 - Crater-iron start radius is already principled (derived from the per-tube slam);

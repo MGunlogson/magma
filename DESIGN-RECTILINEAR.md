@@ -30,19 +30,18 @@ by `line_width/2` on each of the four sides → **inset (open) square side = `sp
 - `opening_diameter = (spacing − lw)·√2` — the circumscribed circle of the inset square,
   which the nozzle flat must cover during Z-slam (all four corners).
 - **Seal ratio** (opening / interior) = **√2 ≈ 1.41**, vs the triangle's 2.0 — the square
-  seals more easily, so a given nozzle flat covers a larger interior
-  (`auto_interior_width_from_od = od / √2`).
+  seals more easily, so a given immersion budget buys a larger interior
+  (`interior_for_opening = opening / √2`).
 - `neighbor_centroid_distance = spacing` (orthogonal grid; simpler than the triangle's
   `side/√3`).
 - `vertex_overlap_excess_area = lw²` — only **2** line families crossing at 90°, ~1
   crossing per cell (vs the triangle's 3 families at 60° → `3√3·lw²/4`). Less material is
-  double-deposited, so the overlap line-width correction is gentler:
-  `line_overlap_excess_fraction = lw / (2·spacing)`.
+  double-deposited, so less is subtracted from the injected volume.
 - `window_volume = (spacing − lw)·lw·window_height` — the shared-wall gap.
 - `auto_window_height = (spacing − lw) = interior_width` — written as `area/edge` to
   parallel the triangle, so the window flow cross-section equals the tube's open
   cross-section.
-- `max_neighbors = 4`, `cells_per_pair = 2`.
+- `max_neighbors = 4`; a pair is 2 cells.
 
 ## 3. Window placement — `square_window_cuts` (pattern-owned)
 

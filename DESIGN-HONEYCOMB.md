@@ -42,14 +42,14 @@ inset by `line_width/2` per side → open apothem `a' = (s − lw)/2 = interior/
   which the nozzle flat must cover during Z-slam.
 - **Seal ratio** (opening / interior) = **2/√3 ≈ 1.155** — the *lowest* of all four
   patterns (vs the square's √2 ≈ 1.41 and the triangle's 2.0), so a hexagon seals the
-  most easily: `auto_interior_width_from_od = od·√3/2` is the largest interior a given
-  nozzle flat can still cap.
+  most easily: `interior_for_opening = opening·√3/2` turns the largest sealable opening
+  into the largest interior that opening allows.
 - `inscribed_radius = interior/2`, `neighbor_centroid_distance = s` (hex↔hex;
-  flat-to-flat = centre-to-centre), `interlock_radius = s/2`.
+  flat-to-flat = centre-to-centre).
 - `auto_window_height = open_area / open_edge` with `open_edge = e − lw` — the window
   flow cross-section equals the paired hex's open tube cross-section (written area/edge
   to parallel triangle/square).
-- `max_neighbors = 6`, `cells_per_pair = 2`. Overlap: see §6.
+- `max_neighbors = 6`; a pair is 2 cells. Overlap: see §6.
 
 ## 3. Squish compensation — pre-expanded lattice (the honeycomb-specific bit)
 
@@ -122,24 +122,16 @@ estimate, and honeycomb's vertex-overlap subtraction is zero (no crossings; §6)
 
 - Honeycomb's hexagon corners are **degree-3** (three wall ENDS meet at 120°, *not*
   crossings), so there is **no line-crossing double-deposition** like the triangle's
-  60° or the square's 90° X-crossings. `vertex_overlap_excess_area` returns **0**, so its
-  vertex-overlap subtraction is zero — regardless of `magma_overlap_line_correction`.
+  60° or the square's 90° X-crossings. `vertex_overlap_excess_area` returns **0**, so
+  honeycomb's vertex-overlap subtraction from the injection volume is zero.
 - That zero is just the general model evaluated for honeycomb. Across all patterns the
-  injection volume is **always** corrected for vertex overlap, sized to the **actual
-  deposited line width** (`m_effective_line_width`): `magma_overlap_line_correction`
-  (default off) only changes how the lines PRINT, not whether the volume is corrected —
-  on → flow reduced, lines thinner (floored ~90% of nozzle via `magma_overlap_min_width`)
-  → only the small residual overlap subtracted; off → full-width lines → full overlap
-  subtracted. One self-scaling term, never double-counted (`polygons_covered_by_width`
-  merges crossing lines into a single union, so the second line's bulge into the void is
-  not captured there and must be subtracted). For honeycomb that term is zero either way.
+  injection volume subtracts the vertex overlap, because crossing lines genuinely deposit
+  plastic twice and `polygons_covered_by_width` merges them into a single union — the second
+  line's bulge into the void is not captured there and has to be subtracted. Honeycomb has
+  no crossings, so it subtracts nothing.
 - The doubled VERTICAL walls are a **separate** effect (the no-travel zigzag, §4),
-  already captured by the measured wall footprint — not a vertex overlap.
-- The flow-width lever still treats the doubled verticals as genuinely excess deposited
-  material: `line_overlap_excess_fraction = lw/s` (same form as tri-hex), so with
-  `magma_overlap_line_correction` on the honeycomb bead is thinned (the verticals'
-  over-deposition reduced) and the measured footprint then reflects the thinner walls.
-  That is the print-time flow lever — distinct from the (zero) volume-overlap term above.
+  already captured by the measured wall footprint — not a vertex overlap, and not
+  something the volume needs to correct for a second time.
 
 ## 7. Solver / injection / preview — UNCHANGED
 

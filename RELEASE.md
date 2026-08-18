@@ -62,10 +62,13 @@ status of the physical printing side, see the [project README](README.md).
   lattice so tubes follow helical paths, adding pullout resistance. Bounded by
   three physical constraints (line overlap, tube area overlap, helix angle).
 
-- **Auto tube sizing** — derives tube interior width from the measured nozzle tip
-  flat (`magma_nozzle_outer_diameter`, labelled "Nozzle tip flat") using the per-shape
-  circumscribed-circle geometry (triangle: `od/(2/√3)`; square: `od/√2`; tri-hex hub:
-  `od·√3/2`), ensuring the nozzle flat covers the opening during Z-slam injection.
+- **Auto tube sizing** — inverts the immersion budget instead of guessing a width. Given
+  the measured nozzle tip flat (`magma_nozzle_outer_diameter`, labelled "Nozzle tip flat"),
+  the cone half-angle and `magma_max_immersion`, it solves for the largest opening the
+  nozzle can seal without descending further into the tube than the budget allows, then
+  converts that opening to an interior width through the pattern's own geometry strategy
+  (`MagmaGeometry::interior_for_opening`) — every shape's circumscribed-circle relation
+  lives once, in the shape, so a new pattern sizes correctly by supplying one formula.
 
 - **Dual cell-presence gate** — a cell becomes an injectable tube cell on a layer only
   when BOTH (a) its boundary-clipped interior area is ≥ 70% of the ideal cell area AND
@@ -158,18 +161,31 @@ status of the physical printing side, see the [project README](README.md).
 
 ### Injection
 
-- **Z-slam sealing** — nozzle lowers into the print surface during injection to
-  seal the tube opening. Configurable depth (default 0.05mm, warns above 3.5mm).
+- **Z-slam sealing** — the nozzle lowers into the print surface during injection so
+  the tip flat and the cone above it cover the tube opening. The depth geometry
+  demands is `(opening + margin - flat) / (2 * tan(angle))`, from the tube opening,
+  the measured nozzle tip flat (`magma_nozzle_outer_diameter`), and the nozzle cone
+  half-angle (`magma_nozzle_cone_half_angle`, default 30°), plus a 0.1mm seal margin
+  so the cone clears the opening rather than grazing it. The slicer computes it; there
+  is no depth to dial in by hand.
 
-- **Auto Z-slam depth** (`magma_injection_z_slam_auto`) — derives the seal depth
-  from nozzle geometry instead of by hand: `z_slam = max(0.1, (opening - flat) /
-  (2 * tan(angle)))`, using the tube opening, the nozzle tip flat, and the nozzle
-  cone half-angle (`magma_nozzle_cone_half_angle`, default 30°). Tracks tube size
-  and nozzle automatically; the manual depth field is hidden while it is on.
+- **Immersion budget** (`magma_max_immersion`, default 0.6mm) — the setting that
+  actually governs deformation. Past first contact with the tube rim, every further
+  `margin / (2 * tan(angle))` of descent (0.0866mm at 30°) is mechanical interference
+  that pushes the walls out and up — a figure independent of both the opening and the
+  flat, since a wider tube only moves where first contact happens. So the budget worth
+  setting is how far the nozzle may travel *inside* the tube. **Auto tube width**
+  inverts it: the tube is sized to the largest opening whose seal depth lands exactly on
+  the budget, so the channel is as big as the deformation tolerance allows. Manual tube
+  width runs it forwards instead — the required depth is clamped to the budget and the
+  slicer warns when the nozzle cannot seal that tube within it. When the flat already
+  covers the opening outright, nothing is geometrically required and the nozzle presses
+  down by `magma_auto_slam_press` (default 0.1mm) so part-to-part variation cannot leave
+  a gap.
 
 - **Plunge / slam-melt** (`magma_injection_plunge`, on by default) — ramps the
   nozzle deeper through the injection (from the seal depth down to seal +
-  `magma_injection_plunge_depth`, default 0.4mm) so the hot tip keeps the seal
+  `magma_injection_plunge_depth`, default 0.05mm) so the hot tip keeps the seal
   pressed shut as the channel fills, driving plastic down the tube instead of
   mushrooming out around the nozzle. Extrusion holds the set volumetric rate.
 
@@ -240,15 +256,12 @@ status of the physical printing side, see the [project README](README.md).
   Auto threshold = 2x nozzle diameter.
 
 - **Vertex overlap correction** — where line families cross (triangle 60°, square 90°,
-  tri-hex Kagome vertices) material is deposited twice. The injection volume is **always**
-  corrected for this overlap, sized to the **actual deposited line width**;
-  `magma_overlap_line_correction` (default off) controls only how the lines PRINT, not
-  whether the volume is corrected. On → infill flow is reduced so the deposited bead
-  shrinks (floored at `magma_overlap_min_width`, default 90% of nozzle diameter), so only
-  the small residual overlap of the thinned lines is subtracted; off → lines print full
-  width and the full overlap is subtracted. One self-scaling term, never double-counted.
-  (Honeycomb has degree-3 vertices — line ends meet, no crossings — so its overlap term is
-  zero either way.)
+  tri-hex Kagome vertices) material is deposited twice, and `polygons_covered_by_width`
+  merges the crossing lines into a single union, so the second line's bulge into the void
+  is not captured in the measured wall footprint. The injection volume subtracts it as a
+  shape constant supplied by the geometry strategy. One self-scaling term, never
+  double-counted. (Honeycomb has degree-3 vertices — line ends meet, no crossings — so its
+  overlap term is zero.)
 
 - **Bridge detection zone-awareness** — zone outer infill is treated as solid
   support for bridges; unfilled cells (no tube coverage) are subtracted so

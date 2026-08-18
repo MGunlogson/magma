@@ -96,22 +96,26 @@ Other things worth trying: a high-flow hotend, short tubes (down to about 4mm), 
 >
 > **Marlin / RRF** — no `max_extrude_cross_section` equivalent, so injection generally works, but make sure cold-extrusion prevention won't block it (the nozzle is hot during injection) and that your max E feedrate/jerk allow the injection rate.
 
-To see it work: slice a part with Magma Triangle infill, then in the preview hide everything except injection lines. The U-tubes appear.
+To see it work: slice a part with Magma Rectilinear infill, then in the preview hide everything except injection lines. The U-tubes appear.
 
-Starting settings (guesses, none have given a totally clean print yet):
+Starting settings — these are the shipped defaults, and they are the values behind the cleanest test print so far. On a fresh install the only one you *must* set yourself is the nozzle tip flat:
 
 | Setting | Value |
 |---|---|
-| Sparse infill pattern | Magma Triangle (or Magma Rectilinear / Magma Tri-hex / Magma Honeycomb) |
+| Sparse infill pattern | Magma Rectilinear (default — see the pattern note below) |
 | `dual_infill_enabled` | on |
 | Inner zone infill | Lightning (the inner zone just supports the top, so use the least material) |
-| `magma_tube_height` | ~4.5 to 6 mm |
-| `magma_nozzle_outer_diameter` (Nozzle tip flat) | your measured nozzle flat (~1 to 3.5 mm) |
-| `magma_injection_z_slam_auto` | on (lets the slicer size the seal depth from your nozzle geometry) |
+| `magma_nozzle_outer_diameter` (Nozzle tip flat) | **required** — measure your nozzle's flat tip face (~1 to 3.5 mm; a stock E3D 0.6 is 1.7 mm). Slicing fails with instructions until it is set |
+| `magma_tube_width_mode` | Auto — sizes the tube from your nozzle so the seal lands exactly on the immersion budget |
+| `magma_max_immersion` | 0.6 mm — how deep the nozzle may sink *into* a tube while sealing. Lower it if injections deform the top surface |
+| `magma_tube_height` | 4.0 mm. Longer tubes need a bigger nozzle and hotter injection or the plastic freezes partway down |
+| `magma_injection_speed` | 0 (use the filament's max volumetric rate — that is what has worked best) |
 | `magma_injection_ordering` | Spread heat (keeps neighbouring injections from melting each other) |
-| `magma_tube_fill_factor` | 1.0, raise if tubes come out hollow |
+| `magma_tube_fill_factor` | 0.9 — raise if tubes come out hollow |
 | `magma_tube_solver_mode` | Basic |
 | `magma_spiral_interlock` | off |
+
+**On patterns:** Rectilinear is the default because it prints fast and its opening is close to round, which is what makes a tube easy to seal. Honeycomb and Tri-hex seal better still (a rounder opening again) at some cost in print time or fill. **Magma Triangle has the worst geometry of the four** — its opening is twice its usable bore, so the nozzle has to descend much further to cover it — and the slicer will warn you if you pick it.
 
 Full settings reference: [settings.md](settings.md).
 

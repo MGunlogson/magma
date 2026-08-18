@@ -56,7 +56,7 @@ Key technical innovations disclosed herein include:
 
 18. **Measured** injection-volume determination from the deposited toolpath, in which each U-tube's injectable cavity volume is not estimated from closed-form cell geometry but MEASURED from the actually generated infill after the toolpath exists. For each layer of a pair's run the injectable void = (the union of the pair's cell polygons, intersected with the reinforcement zone) MINUS the footprint of the deposited walls (the polygons covered by the extrusion width), summed times layer height over the run. A single geometric measurement thereby captures -- directly from the deposited footprint, with no per-pattern correction terms -- side-by-side doubled walls (such as the honeycomb pattern's doubled verticals), the window gap, and part-edge clipping. The one residual the union footprint cannot see -- the extra material where lines CROSS and stack, which `polygons_covered_by_width` merges into a single union -- is removed by the always-applied, self-scaling correction of claim 19. The measured cavity then drives the injected-plastic dose.
 
-19. A single, self-scaling overlap correction that is ALWAYS applied to the measured injection volume of claim 18, sized to the ACTUAL deposited line width, so the line-crossing over-extrusion is corrected exactly once and never double-counted regardless of how the lines were printed. The system subtracts the over-extruded crossing material from the measured cavity, apportioned per cell from each shape's vertex geometry evaluated at the effective (deposited) line width `lw_eff` (triangle `(3*sqrt(3)/4)*lw_eff^2` per vertex, square `lw_eff^2`, tri-hex `(2/sqrt(3))*lw_eff^2` charged to incident cells by corner count, honeycomb `0` -- its degree-3 junctions are line ends, not crossings). The separate `magma_overlap_line_correction` setting (default off) is a *print-quality* lever, NOT a volume gate: it controls only how the lines PRINT, not whether the volume is corrected. When on, it reduces infill flow so the deposited lines print thinner (floored near 90% of nozzle width, `magma_overlap_min_width`, to avoid sub-nozzle-width lines), which makes `lw_eff` smaller so only the small RESIDUAL crossing overlap of the thinned lines is subtracted; when off (default), the lines print full width and the full overlap is subtracted. Because the subtraction always uses the width actually deposited -- and because the deposited-footprint measurement (claim 18) merges crossing beads into one union, so the second crossing bead's bulge into the void is never captured there -- the overlap is compensated exactly once whatever the setting.
+19. A single, self-scaling overlap correction that is ALWAYS applied to the measured injection volume of claim 18, sized to the ACTUAL deposited line width, so the line-crossing over-extrusion is corrected exactly once and never double-counted regardless of how the lines were printed. The system subtracts the over-extruded crossing material from the measured cavity, apportioned per cell from each shape's vertex geometry evaluated at the effective (deposited) line width `lw_eff` (triangle `(3*sqrt(3)/4)*lw_eff^2` per vertex, square `lw_eff^2`, tri-hex `(2/sqrt(3))*lw_eff^2` charged to incident cells by corner count, honeycomb `0` -- its degree-3 junctions are line ends, not crossings). The separate `magma_overlap_line_correction` setting (default off) is a *print-quality* lever, NOT a volume gate: it controls only how the lines PRINT, not whether the volume is corrected. When on, it reduces infill flow so the deposited lines print thinner (floored near 90% of nozzle width, `magma_overlap_min_width`, to avoid sub-nozzle-width lines), which makes `lw_eff` smaller so only the small RESIDUAL crossing overlap of the thinned lines is subtracted; when off (default), the lines print full width and the full overlap is subtracted. Because the subtraction always uses the width actually deposited -- and because the deposited-footprint measurement (claim 18) merges crossing beads into one union, so the second crossing bead's bulge into the void is never captured there -- the overlap is compensated exactly once whatever the setting. *(Implementation status: the `magma_overlap_line_correction` lever was subsequently removed from the shipping slicer for not being useful enough to carry — lines now always print full width and the full overlap is always subtracted. The code remains in git history; this claim is retained as prior art. See the note in Section 4.h.)*
 
 All algorithms, code, and structures described in this document are dedicated to the public domain to establish prior art and prevent patenting by third parties.
 
@@ -495,10 +495,10 @@ double opening_diameter(double spacing, double line_width) const override {
     return s > 0.0 ? 2.0 * s * INV_SQRT3 : 0.0;
 }
 
-// Largest interior whose hex opening fits the nozzle flat:
-// opening = 2*interior/sqrt3 <= od  ->  interior = od * sqrt3 / 2.
-double auto_interior_width_from_od(double nozzle_od, double /*line_width*/) const override {
-    return nozzle_od > 0.0 ? std::max(0.1, nozzle_od * SQRT3 * 0.5) : 0.1;
+// Inverse of opening_diameter(): the interior whose hex opening is exactly `opening`.
+// opening = 2*interior/sqrt3  ->  interior = opening * sqrt3 / 2.
+double interior_for_opening(double opening, double /*line_width*/) const override {
+    return opening > 0.0 ? std::max(0.1, opening * SQRT3 * 0.5) : 0.1;
 }
 
 // Degree-3 honeycomb junctions are line ENDS, not crossings -> no crossing overlap.
@@ -836,6 +836,16 @@ Because the measurement uses the *real* deposited footprint, the same single ope
 **Prior-art scope.** This disclosure establishes prior art for determining the injected-material dose for an in-situ printed channel by **measuring** its per-layer cavity from the generated toolpath -- (cell polygons intersected with the infill zone) minus the polygons covered by the deposited extrusion width, summed over the channel's layer range times layer height -- rather than from a closed-form cross-section, so that a single geometric difference captures side-by-side doubled walls, the window gap, and part-edge clipping with no pattern-specific correction terms (the residual stacking over-extrusion where lines cross being removed by the companion self-scaling correction of Section 4.h).
 
 ### 4.h Flow-Correction-Aware Overlap Compensation (single self-scaling correction)
+
+> **Implementation status.** The `magma_overlap_line_correction` / `magma_overlap_min_width`
+> print-quality lever described in this section has since been **removed from the shipping
+> slicer** — it was off by default, it was not useful enough to justify itself, and it was the
+> only reason the tube map carried two different line widths, which in practice produced several
+> code paths that disagreed about which width to use. Lines now always print at full nominal
+> width and the full crossing overlap is always subtracted; anyone wanting thinner beads can set
+> a lower sparse infill line width directly. The implementation remains in the project's git
+> history, and the disclosure below is retained in full as prior art — the mechanism was built,
+> shipped and published, and its removal is a product decision, not an abandonment of the idea.
 
 Where infill line families cross, the toolpath deposits material twice, over-extruding at each junction, and the second bead's bulge squeezes into the cavity. Because the deposited-wall footprint of Section 4.g (`polygons_covered_by_width`) merges the two crossing beads into a single union, that bulge is never recorded by the measurement, so the injection volume is **always** corrected for it. The correction is a **single self-scaling subtraction**, sized to the *actual deposited* line width -- not two mutually-exclusive levers, and not gated on any setting.
 
@@ -1312,18 +1322,29 @@ if (inj_retract)
 
 Small values (0.05mm) work with nozzles that have a wide flat tip. Nozzles with a narrow flat and tapered tip may need deeper values (0.5-1.0mm) so the taper widens enough to seal the tube opening. The slam/lift moves use the printer's Z travel speed (`travel_speed_z`, firmware-capped) rather than a hardcoded feedrate, so the nozzle does not linger on the hot tube top.
 
-**Auto Z-slam depth from nozzle cone geometry.** Choosing this depth by hand requires reasoning about the nozzle's tip flat and the cone above it. When `magma_injection_z_slam_auto` is enabled, the depth is instead derived from geometry. A standard nozzle tip is a flat ring of diameter `flat` (the measured `magma_nozzle_outer_diameter`, "Nozzle tip flat") with a cone of half-angle `theta` (`magma_nozzle_cone_half_angle`, default 30 degrees) widening above it. To seal a tube opening of diameter `opening`, the nozzle must descend until the cone has widened from `flat` to `opening` plus a small seal margin (0.1mm, so the cone clears the opening rather than just grazing it and so the auto depth satisfies the seal-prediction check). Each unit of descent widens the cone by `2 * tan(theta)`, giving:
+**Seal depth from nozzle cone geometry, and the immersion budget that governs it.** A standard nozzle tip is a flat ring of diameter `flat` (the measured `magma_nozzle_outer_diameter`, "Nozzle tip flat") with a cone of half-angle `theta` (`magma_nozzle_cone_half_angle`, default 30 degrees) widening above it. To seal a tube opening of diameter `opening`, the nozzle must descend until the cone has widened from `flat` to `opening` plus a small seal margin (`MAGMA_SEAL_MARGIN`, 0.1mm, so the cone clears the opening rather than just grazing it). Each unit of descent widens the cone by `2 * tan(theta)`, giving `seal_depth = (opening + margin - flat) / (2 * tan(theta))`, floored at zero when the flat already covers the opening. There is no user-facing manual depth: the slicer derives it per tube from that tube's own clipped opening, so a tube whose top was clipped narrow gets the deeper press it needs.
 
-```
-// src/libslic3r/Magma/MagmaInjection.cpp
-double opening   = tube_map.tube_opening_diameter();          // inscribed opening of the inset triangle
-double flat      = nozzle_flat > 0 ? nozzle_flat : 3.0 * nozzle_diameter;
-double theta_rad = magma_nozzle_cone_half_angle * PI / 180.0;
-double slam_depth = std::max(0.1, (opening + 0.1 - flat) / (2.0 * std::tan(theta_rad)));  // +0.1mm seal margin
-slam_depth = std::min(slam_depth, 3.5);                       // shared clamp
+The non-obvious part is what that depth costs. It is natural to assume the deformation around an injection scales with how hard the nozzle is pressed in, and therefore that the depth is the thing to limit. It is not. Because the solve targets `opening + margin`, the *mechanical interference* past first contact with the tube rim is always `margin / (2 * tan(theta))` — the opening and the flat cancel out of the expression entirely, leaving a constant 0.0866mm at 30 degrees that is **identical for every tube size and every nozzle**. A wider tube does not press harder; it only moves the point at which contact begins further down.
+
+What actually varies between a clean injection and a deformed one is how far the hot nozzle travels *inside* the tube before it seals. Two test prints differing only in that quantity (0.54mm and 1.08mm) had byte-identical interference and visibly different top surfaces. The disclosed system therefore exposes the **immersion** as the user-facing budget (`magma_max_immersion`, default 0.6mm) rather than exposing the depth, and consumes that budget in two directions:
+
+- **Auto tube width** *inverts* the budget: `max_opening_for_immersion(flat, theta, budget) = flat + 2 * budget * tan(theta) - margin` gives the largest opening sealable within the budget, and the pattern's own geometry strategy (`MagmaGeometry::interior_for_opening`) converts that opening into the interior width for that cell shape. The tube is thus made as large as the user's tolerance for deformation permits, with no arithmetic by the user, and the depth cap never binds.
+- **Manual tube width** runs it forwards: the required depth is computed and clamped to the budget, and slicing-time validation reports the shortfall — the nozzle is never allowed to drive arbitrarily deep to chase a seal the user's own budget forbids.
+
+```cpp
+// src/libslic3r/Magma/MagmaTriangleCell.hpp  (shape-agnostic seal math)
+inline double auto_slam_depth(double opening_dia, double flat, double cone_half_angle_deg,
+                              double max_immersion, double press) {
+    press = std::max(0.0, press);
+    double needed = seal_depth_for_opening(opening_dia + MAGMA_SEAL_MARGIN, flat, cone_half_angle_deg);
+    double budget = std::max(press, std::max(0.0, max_immersion));
+    return std::min(std::min(std::max(press, needed), budget), MAGMA_SLAM_CLAMP);
+}
 ```
 
-When the flat already covers the opening with margin (`flat >= opening + margin`) the numerator is non-positive and the depth floors at a minimal 0.1mm press for a clean seal. A pointier cone (smaller `theta`) requires a deeper slam for the same opening; a wider flat requires less. This makes the seal depth track tube size and nozzle automatically, and is what allows tubes intentionally sized larger than the flat (Manual tube width) to still seal. When auto mode is on, the manual `magma_injection_z_slam` field is ignored (and hidden in the UI).
+When the flat already covers the opening outright, no descent is geometrically required and `needed` is zero; the nozzle still presses down by `press` (`magma_auto_slam_press`, default 0.1mm) so ordinary part-to-part variation cannot leave the seal open. The nozzle tip flat has no default and no fallback: it is a physical property of the user's hardware that cannot be guessed from the nozzle's *bore* diameter, so slicing fails with measurement instructions until it is provided.
+
+**Prior-art scope.** This disclosure establishes prior art for governing an in-situ sealing plunge by a **nozzle-immersion budget** rather than a plunge depth — including the observation that, when the seal solve targets the opening plus a fixed margin, the mechanical interference past rim contact is invariant to both opening and tip flat, so depth is the wrong quantity to bound — and for **inverting** that budget to size the printed channel itself, so the channel is made the largest one sealable within the user's deformation tolerance.
 
 **Progressive plunge ("slam-melt").** A single fixed seal depth can fail mid-injection: as channel pressure rises, plastic finds the lateral gap at the seal and mushrooms out around the nozzle instead of flowing down the tube. The plunge ramps the nozzle deeper *while injecting* — the extrusion is split into segments and the Z is stepped down between them from `slam_depth` to `slam_depth + plunge_depth` over the course of the injection, so the hot tip keeps sinking into the softening tube top and holds the seal shut as it fills:
 
@@ -1415,22 +1436,34 @@ Each G1 command receives a proportional share of the total extrusion amount, wei
 
 ### 6.g Auto-Sizing
 
-Interior width and window height are automatically calculated from the nozzle geometry:
+Interior width and window height are derived rather than dialled in.
+
+The interior width comes from the immersion budget, not from the nozzle bore. The largest
+sealable opening is `flat + 2 * max_immersion * tan(theta) - margin` (Section 4 above), and
+each pattern converts that opening into an interior width through its own inverse of
+`opening_diameter()`, reached polymorphically so no call site carries a shape-specific
+formula:
 
 ```cpp
-// src/libslic3r/Magma/MagmaTriangleCell.cpp
-
-double calculate_auto_interior_width(double nozzle_diameter)
-{
-    // Fallback when nozzle outer diameter is not specified.
-    // Uses 3.0x bore as a conservative default.
-    return nozzle_diameter * 3.0;
-}
+// src/libslic3r/Magma/MagmaGeometry.hpp
+// Inverse of opening_diameter(): the interior width whose seal opening is exactly
+// `opening`. Auto tube sizing feeds this the largest opening the injection immersion
+// budget allows, so the tube comes out as big as the deformation budget permits.
+virtual double interior_for_opening(double opening, double line_width) const = 0;
 ```
 
-When the nozzle outer diameter is known, `calculate_auto_interior_width_from_od()` computes the largest inset triangle that fits within the nozzle shoulder circle. It uses circumscribed circle geometry: for an equilateral triangle with side `s`, the circumscribed diameter is `2s / sqrt(3)`. Setting this equal to `nozzle_od` and solving for the interior width sizes the tube opening so all three vertices are covered by the nozzle flat during z-slam injection (report a slightly conservative flat to build in a sealing margin).
+There is deliberately **no fallback** for an unmeasured nozzle tip flat. An earlier revision
+defaulted it to three times the bore diameter; this is disclosed here because it is a
+plausible design and is being dedicated to the public domain, but it was removed as unsound.
+The flat is a physical property of a specific nozzle that does not track its bore — two 0.6mm
+nozzles can have visibly different flats — so a guessed value silently mis-sizes every tube in
+the print. Slicing instead fails with an error naming the setting and describing how to measure
+it, on the reasoning that a loud stop is cheaper than a part-sized batch of unsealed tubes.
 
-Window height is auto-calculated from `tube_area / inset_side` (plus one layer height) where `inset_side = side - line_width * sqrt(3)`. This equates the window opening cross-section to the tube interior cross-section, then adds one layer height so the window reliably spans a full printed layer. The minimum window height is 0.1mm.
+Window height is auto-calculated from `tube_area / inset_side` (plus one layer height). This
+equates the window opening cross-section to the tube interior cross-section, then adds one
+layer height so the window reliably spans a full printed layer. The minimum window height is
+0.1mm.
 
 ### 6.h Heat-Spread Injection Ordering
 
