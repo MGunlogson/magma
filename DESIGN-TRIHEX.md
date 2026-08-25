@@ -90,7 +90,7 @@ matching, so it can never strand a hub.
   `auto_window_height`, `interior_for_opening`) drops into a `HexGeometry`
   (`MagmaGeometry` impl) used for the hub.
 - `max_neighbors()` returns the max (6); `neighbors()` already returns variable arity.
-- Crater-iron start radius is already principled (derived from the per-tube slam);
+- Crater-iron start radius is already principled (derived from the per-tube seal depth);
   feed it the per-kind neighbour opening + hex↔triangle `neighbor_centroid_distance`
   for the neighbour-clearance cap.
 - Injection-edge preference (interior/exterior) is moot for tri-hex (hub is the hex).

@@ -6,6 +6,12 @@ render_with_liquid: false
 
 **Publication Date:** February 9, 2026 (Updated March 16, 2026; June 23, 2026; June 25, 2026; August 17, 2026)
 
+> **Note (August 25, 2026):** The body of this disclosure is preserved as published. Parts of the
+> seal-depth model it describes have since been superseded by test-print evidence — see
+> [Addendum A](#addendum-a-superseded-mechanisms-august-25-2026) at the end for what changed and
+> what still stands. Superseded material is deliberately **not** removed: a defensive publication
+> records what was disclosed on a date, and editing it after the fact would defeat its purpose.
+
 **Authors:** Mark Gunlogson
 
 **Status:** Public Domain Disclosure under CC0 1.0 Universal
@@ -2103,3 +2109,82 @@ The complete source code implementing the IMPLEMENTED portions of this disclosur
   }
 }
 ```
+
+
+---
+
+## Addendum A: Superseded mechanisms (August 25, 2026)
+
+The disclosure above is unchanged from publication. This addendum records which of its
+mechanisms test prints have since superseded, so nobody implements a model its own author
+abandoned. Everything disclosed stays dedicated to the public domain either way. The point of
+the disclosure is that none of it can be enclosed by anyone.
+
+### A.1 The immersion-budget model is withdrawn
+
+Sections describing a user-facing **nozzle-immersion budget** (`magma_max_immersion`), the
+**inversion** of that budget to size the printed channel (`magma_tube_width_mode` = Auto), and
+the **auto slam press** (`magma_auto_slam_press`) describe a design that shipped and was then
+replaced. Those three settings no longer exist.
+
+The model had the causality backwards. Immersion is what damages the part, so making it the
+input and deriving the tube from it left channel width, the thing a user actually wants, as a
+side effect. It also coupled the plunge to the tube, so pressing harder during an injection
+silently narrowed the channel it was sealing.
+
+The current model takes tube interior width as the input:
+
+    seal depth  = (opening - nozzle flat) / (2 * tan(cone half-angle)) + seal press
+    total depth = seal depth + plunge depth
+    corner grip = (seal press + plunge depth) * tan(cone half-angle)
+
+There is no margin term; the earlier `MAGMA_SEAL_MARGIN` constant no longer exists. Seal press
+and plunge are the same physical quantity — depth past first contact — applied before and
+during the injection respectively.
+
+### A.2 The cone-versus-cell-pitch damage ceiling is withdrawn
+
+The disclosure treats the nozzle cone widening past one cell pitch as the mechanism that
+distorts the surrounding lattice. Measured print evidence contradicts this in both directions: a
+sweep reached 135% of cell pitch with no lattice disruption, while another degraded at 106%.
+
+The measurement behind the ceiling came from a sweep in which immersion sized the tube, so what
+varied across it was the channel and its injected volume rather than the cone. The damage was
+real and the attributed cause was wrong. The ratio survives in the implementation only as a
+geometric sanity bound.
+
+### A.3 "The seal is the binding constraint" is superseded
+
+The disclosure states that at same-material injection the seal, rather than flow, is the binding
+constraint. Testing puts the binding constraint elsewhere: the **duration of a single
+injection**. Roughly 1.5 s or less prints cleanly, about 2 s begins to deform the lattice, and 3 s
+destroys the cells around the injection point. Since injection runs at the filament's maximum
+volumetric rate, injection time is set by volume per tube, and therefore by channel width and
+tube height.
+
+The mechanism behind that limit is not established. Two explanations fit every result and no
+test has separated them: the nozzle acting as a heat source for as long as it is sealed into a
+cell, or the melt freezing partway down the channel so backpressure forces it back out past the
+seal. Both worsen with duration. This is an open question, not a claim.
+
+One approach that does not work, recorded so others do not spend prints on it: splitting a long
+injection into shorter bursts to let the walls cool between them. The melt solidifies into a
+plug and the rest of the injection has nowhere to go.
+
+### A.4 Corrected guidance on nozzle geometry
+
+The disclosure and its accompanying documentation suggested that a **larger** nozzle tip flat
+would help seal larger or taller channels. The opposite is the case, and this is the most
+consequential correction here.
+
+The flat sets the minimum cell size that can be sealed reliably, because seal depth is governed
+by how much wider the cell is than the flat, and below roughly 0.4 mm of engagement the seal
+does not survive the unevenness of a printed rim. A smaller flat therefore permits smaller
+cells. Since each injection is bounded by duration rather than size, many small channels deliver
+more injected material than a few large ones.
+
+### A.5 Unchanged
+
+The lattice generation, U-tube pairing and window placement, the tube-assignment solver, the
+per-layer injection scheduling and heat-spreading order, the measured-cavity volume calculation,
+crater ironing, safe parking, and the progressive plunge during injection are all as disclosed.

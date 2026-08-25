@@ -8,7 +8,7 @@ Magma is a fork of [OrcaSlicer](https://github.com/SoftFever/OrcaSlicer). It add
 
 *The nozzle drops into a channel, extrudes a column of plastic, lifts, and moves to the next. Every red column is one injection.*
 
-> **Status:** It works in the slicer. I have not gotten a clean physical print yet. This is an open experiment, and I want testers with better hardware than mine. (Bug reports go to [this fork](https://github.com/MGunlogson/OrcaSlicer/issues), not the upstream OrcaSlicer repo.)
+> **Status:** It works in the slicer and it prints. [TUNING.md](TUNING.md) has a known-good recipe, measured on a 0.6 mm E3D V6 with PLA. Still open: how far that generalises, and whether the reinforcement is worth the print time. I want testers with better hardware than mine. (Bug reports go to [this fork](https://github.com/MGunlogson/OrcaSlicer/issues), not the upstream OrcaSlicer repo.)
 
 ## The problem
 
@@ -63,17 +63,23 @@ I ran about a hundred prints on an ancient clunky Ender 3. The slicer side works
 
 #### Tube top compromise
 
-The top of the tube nearly always melts while injecting, compromising the seal that allows plastic to be injected into the tube. This could be remedied with a higher injection speed, lower viscosity injection material, better cooling, a film or cover or heat break in the nozzle to prevent heat flow into the print when the nozzle contacts the top of the cells. Or by injecting something that's not a thermoplastic, like resin or silicone. A related failure — neighbouring cells melting each other when injected back-to-back — is what the **Spread heat** injection order (`magma_injection_ordering`) is for: it spaces nearby injections out in time so the heat dissipates between them.
+The tube top melts while injecting if the injection runs long, which breaks the seal. This is the dominant failure mode, and the best predictor of it is how many seconds each injection takes: 1.5 s is clean, 2 s deforms the lattice, 3 s destroys it. Injection already runs at the filament's max volumetric rate, so the only lever is less plastic per tube. Shorter tubes first, then narrower. See [TUNING.md](TUNING.md).
+
+Two mechanisms fit every test print and we have not separated them. Either the nozzle acts as a heat source for as long as it is sealed in, or the melt freezes partway down and backpressure pushes it out past the seal. Both worsen with longer injections. Worth trying either way: lower-viscosity injection material, a heat break or film at the nozzle face, or injecting something that is not a thermoplastic. A related failure — neighbouring cells melting each other when injected back-to-back — is what the **Spread heat** injection order (`magma_injection_ordering`) is for: it spaces nearby injections out in time so the heat dissipates between them.
 
 #### Injection flow limitations
 
-Plastic viscosity limits max tube height. Could be remedied with lower viscosity plastic, higher injection temps, better nozzle seal (z-slam adjustment or reshaping the nozzle to have a bigger flat shoulder or a triangle shape), higher hot end flow and more pressure via direct drives, multi nozzle printer with different sized nozzle for injection. You could also simply experiment with the tube width to triangle line width ratio to find a good trade off.
+Tube height is capped by the duration limit above, since volume scales with height. 3-4 mm is where the good prints are.
+
+Worth trying: lower-viscosity plastic, higher injection temperature, higher hot-end flow, or a multi-nozzle printer with a dedicated injection nozzle. A faster material directly buys more tube.
+
+**A smaller nozzle tip flat is the highest-value hardware change.** The flat sets the minimum cell you can seal, because seal depth comes from how much wider the cell is than the flat. Smaller flat, smaller cells. Every tube gets the same time budget whatever its size, so many small tubes put more plastic in than a few large ones: roughly twice as much going from a 2.0 mm flat to a 1.0 mm one. (An earlier version of this page recommended a *bigger* flat shoulder. That was wrong.)
 
 ## Why I think it works
 
 The most promising fix is dual material. A high heat deflection temp outer shell of something like CF-Nylon or polycarbonate, with a low viscosity low melting point injection material like high-speed PLA. I wired up dual-nozzle and per-material injection (`magma_injection_filament`) for exactly this. It is mostly untested, since I only have a single-extruder printer.
 
-Other things worth trying: a high-flow hotend, short tubes (down to about 4mm), low-viscosity injection materials, nozzle coatings or heat breaks, deeper z-slam sealing. There are a lot of knobs.
+Other things worth trying: a high-flow hotend, short tubes, low-viscosity injection materials, nozzle coatings or heat breaks, and a nozzle with a smaller tip flat. There are a lot of knobs.
 
 ## Try it
 
@@ -98,26 +104,29 @@ Other things worth trying: a high-flow hotend, short tubes (down to about 4mm), 
 
 To see it work: slice a part with Magma Rectilinear infill, then in the preview hide everything except injection lines. The U-tubes appear.
 
-Starting settings — these are the defaults, and they are the values behind the cleanest test print so far. On a fresh install the only one you *must* set yourself is the nozzle tip flat:
+Starting settings — the defaults, plus the values behind the cleanest print so far. On a fresh
+install the only one you *must* set yourself is the nozzle tip flat.
 
 | Setting | Value |
 |---|---|
-| Sparse infill pattern | Magma Rectilinear (default — see the pattern note below) |
-| `dual_infill_enabled` | on |
-| Inner zone infill | Lightning (the inner zone just supports the top, so use the least material) |
-| `magma_nozzle_outer_diameter` (Nozzle tip flat) | **required** — measure your nozzle's flat tip face (~1 to 3.5 mm; a stock E3D 0.6 is 1.7 mm). Slicing fails with instructions until it is set |
-| `magma_tube_width_mode` | Auto — sizes the tube from your nozzle so the seal lands exactly on the immersion budget |
-| `magma_max_immersion` | 0.6 mm — how deep the nozzle may sink *into* a tube while sealing. Lower it if injections deform the top surface |
-| `magma_tube_height` | 4.0 mm. Longer tubes need a bigger nozzle and hotter injection or the plastic freezes partway down |
-| `magma_injection_speed` | 0 (use the filament's max volumetric rate — that is what has worked best) |
-| `magma_injection_ordering` | Spread heat (keeps neighbouring injections from melting each other) |
-| `magma_tube_fill_factor` | 0.9 — raise if tubes come out hollow |
-| `magma_tube_solver_mode` | Basic |
-| `magma_spiral_interlock` | off |
+| Sparse infill pattern | Magma Rectilinear (default) |
+| **Nozzle tip flat** | **required** — measure your nozzle's flat tip face with calipers (a stock E3D V6 0.6 measures ~1.75 mm). Slicing fails with instructions until it is set |
+| Tube interior width | 1.6 mm |
+| Max tube height | 3.5 mm (3.8 for the recipe below) |
+| Plunge depth | 0.4 mm |
+| Injection speed | 0 — the filament's max volumetric rate |
+| Injection order | Spread heat |
+| Injection dwell | 0 — leave it there, it only cooks the cell |
+| Tube fill factor | 0.9 |
 
-**On patterns:** Rectilinear is the default because it prints fast and its opening is close to round, which is what makes a tube easy to seal. Honeycomb and Tri-hex seal better still (a rounder opening again) at some cost in print time or fill. **Magma Triangle has the worst geometry of the four** — its opening is twice its usable bore, so the nozzle has to descend much further to cover it — and the slicer will warn you if you pick it.
+**Read [TUNING.md](TUNING.md) before your first print.** Short version: keep each injection
+under about 1.5 seconds and the seal deeper than 0.4 mm. Those two bound everything else.
 
-Full settings reference: [settings.md](settings.md).
+**On patterns:** all four print. Rectilinear is the default for print speed and printability,
+and it is what the tuning guidance was measured on. Honeycomb and Tri-hex have rounder openings,
+which helps sealing, but honeycomb sealed poorly on the one plate that tested it. Magma Triangle
+has the worst geometry of the four, and the slicer warns if you pick it. See
+[PATTERNS.md](PATTERNS.md).
 
 ## Help wanted
 
@@ -138,7 +147,8 @@ In-print cavity injection is not new — ORNL published Z-pinning in 2018, and A
 ## More
 
 - [How it works](how-it-works.md): the mechanism in detail, with diagrams.
-- [Settings reference](settings.md): every setting, its tab, and its default.
+- [Patterns](PATTERNS.md): the four cell shapes and how they compare.
+- [Tuning guide](TUNING.md): the settings that work, why, and how to adapt them.
 - [DESIGN-TUBE-SOLVER.md](DESIGN-TUBE-SOLVER.md): the greedy + CP-SAT tube assignment solver.
 - [DEFENSIVE_PUBLICATION.md](DEFENSIVE_PUBLICATION.md): full algorithm and architecture disclosure (CC0 1.0).
 

@@ -39,7 +39,7 @@ inset by `line_width/2` per side → open apothem `a' = (s − lw)/2 = interior/
   is called with the open flat-to-flat, not with `s`).
 - `inset_open_area = 2√3·a'²` (regular-hex area from apothem `a'`).
 - `opening_diameter = 2·(s − lw)/√3` — the circumscribed circle of the open hexagon,
-  which the nozzle flat must cover during Z-slam.
+  which the nozzle flat must cover when sealing.
 - **Seal ratio** (opening / interior) = **2/√3 ≈ 1.155** — the *lowest* of all four
   patterns (vs the square's √2 ≈ 1.41 and the triangle's 2.0), so a hexagon seals the
   most easily: `interior_for_opening = opening·√3/2` turns the largest sealable opening
@@ -138,7 +138,7 @@ estimate, and honeycomb's vertex-overlap subtraction is zero (no crossings; §6)
 - The tube solver (greedy warm start + optional CP-SAT) is **pattern-agnostic**: a hex
   with 6 candidate neighbours instead of the triangle's 3 is just more edges; the
   matching, runs, segments, stagger, and CP-SAT model are identical.
-- Per-layer presence scan, injection G-code, Z-slam / plunge / crater-iron, the
+- Per-layer presence scan, injection G-code, seal / plunge / crater-iron, the
   spread-heat injection ordering, and the preview tube viz are all shared and unchanged.
 - Spiral interlock applies (the hex lattice translates per layer like the others).
 

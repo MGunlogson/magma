@@ -28,9 +28,9 @@ by `line_width/2` on each of the four sides → **inset (open) square side = `sp
 - `edge_length = spacing` (the line spacing IS the square's side).
 - `inset_open_area = (spacing − lw)²`.
 - `opening_diameter = (spacing − lw)·√2` — the circumscribed circle of the inset square,
-  which the nozzle flat must cover during Z-slam (all four corners).
+  which the nozzle flat must cover when sealing (all four corners).
 - **Seal ratio** (opening / interior) = **√2 ≈ 1.41**, vs the triangle's 2.0 — the square
-  seals more easily, so a given immersion budget buys a larger interior
+  seals more easily, so a given seal depth buys a larger interior
   (`interior_for_opening = opening / √2`).
 - `neighbor_centroid_distance = spacing` (orthogonal grid; simpler than the triangle's
   `side/√3`).
@@ -71,7 +71,7 @@ shared edge into three families (horizontal / 60° / 120°).
 - The tube solver (greedy warm start + optional CP-SAT) is **pattern-agnostic**: a square
   cell with 4 candidate neighbours instead of the triangle's 3 is just more edges; the
   matching, runs, segments, stagger, and CP-SAT model are identical.
-- Per-layer presence scan, injection G-code, Z-slam/plunge/crater-iron, the spread-heat
+- Per-layer presence scan, injection G-code, seal/plunge/crater-iron, the spread-heat
   injection ordering, and the preview tube viz are all shared and unchanged.
 - Spiral interlock applies (the square lattice translates per layer like the triangle).
 

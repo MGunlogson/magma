@@ -19,7 +19,7 @@ You pick the pattern with `sparse_infill_pattern`; the four, in the order they a
 
 | | Cells & lines | Injection unit | Notes / when to use |
 |---|---|---|---|
-| **Honeycomb** | regular hexagons, native honeycomb zigzag | U-tube (2 cells) | Reuses Orca's fast, low-travel honeycomb toolpath, so it prints quickly. Vertical walls come out doubled, and the lattice is pre-expanded so the open tube stays a regular hexagon. No line crossings to over-extrude, and the roundest opening of the four (ratio 2/√3 ≈ 1.15), so it seals with the least descent. |
+| **Honeycomb** | regular hexagons, native honeycomb zigzag | U-tube (2 cells) | Reuses Orca's fast, low-travel honeycomb toolpath, so it prints quickly. Vertical walls come out doubled, and the lattice is pre-expanded so the open tube stays a regular hexagon. No line crossings to over-extrude, and the roundest opening of the four (ratio 2/√3 ≈ 1.15), so it seals with the least descent. Sealed poorly on the one plate that tested it, possibly because those doubled walls leave a join running the full tube height — see [PATTERNS.md](PATTERNS.md). |
 | **Rectilinear** | squares, 2 perpendicular families at 90° | U-tube (2 cells) | The **default**. Seals easily (opening/bore ratio √2 ≈ 1.41) and prints fastest (2 straight families, not 3), at fewer tubes per area. Good for blocky / orthogonal parts. |
 | **Triangle** | equilateral triangles, 3 line families at 60° | U-tube (2 cells) | Packs the most tubes per area, but has the **worst sealing geometry** — opening/bore ratio 2.0, so the nozzle must descend much further to cover an opening twice the usable bore. The slicer warns when you select it. |
 | **Tri-hex** | hexagon hubs + triangle vents | manifold (hub + N vents) | One injection fills a hub plus many legs, so it covers **open areas** efficiently and degrades gracefully to a plain U-tube where the part pinches. |
@@ -78,7 +78,7 @@ With spiral interlock on, the whole lattice rotates slightly each layer, so tube
 
 ## The injection sequence
 
-Injection runs as the print climbs, not all at the end. At the right height the printer parks motion, drops the nozzle onto a tube top, presses down to seal (z-slam), extrudes the calculated volume, lifts, and moves to the next. With a dedicated injection filament it can switch to a second extruder and material first. Temperature changes during injection use safe parking so the nozzle does not ooze on the part.
+Injection runs as the print climbs, not all at the end. At the right height the printer parks motion, drops the nozzle onto a tube top, presses down to seal, extrudes the calculated volume, lifts, and moves to the next. With a dedicated injection filament it can switch to a second extruder and material first. Temperature changes during injection use safe parking so the nozzle does not ooze on the part.
 
 ![Mid-print injection](assets/screenshots/04-injection-paths.png)
 
@@ -90,17 +90,15 @@ The volume pushed into each U-tube is **measured from the actual printed toolpat
 
 Where infill lines cross they deposit plastic twice, and that doubled material is subtracted from the injected volume too, so the number can never over-inject. Honeycomb is the exception: its corners are three wall *ends* meeting at 120°, not crossings, so there is nothing doubled and nothing to subtract.
 
-### Sealing depth (immersion)
+### Sealing depth
 
-The seal happens because the nozzle tip flat (and the cone above it) covers the tube opening when pressed down. A wide flat that already covers the opening only needs a token press; a narrow flat on a tapered tip has to go deeper so the widening cone reaches the opening width. The depth that geometry demands is `(opening + margin - flat) / (2 * tan(angle))`, where `margin` is a 0.1mm seal margin so the cone clears the opening with room to spare rather than just grazing it.
+The seal happens because the nozzle tip flat (and the cone above it) covers the tube opening when pressed down. A wide flat that already covers the opening only needs a token press; a narrow flat on a tapered tip has to go deeper so the widening cone reaches the opening width. The depth geometry demands is `(opening - flat) / (2 * tan(angle))`, and Magma then descends a little further — the **seal press** (0.1mm by default) — because covering a cell is not the same as gripping it. At first contact the nozzle is resting on the opening, not sealing it, and a printed rim is never as flat as the model says.
 
-The thing that actually costs you is not that depth number, though — it is how far the hot nozzle ends up **inside** the tube. Once the cone first touches the tube rim, every further 0.0866mm of descent (at a 30° cone) is mechanical interference that pushes the walls outward and up, and that figure is the same whatever the opening and whatever the flat: a wider tube just means first contact happens further down. So the budget worth setting is the immersion, and that is the setting Magma exposes: **Total immersion** (`magma_max_immersion`, 0.6mm by default).
+Below about **0.4mm of total seal depth** that engagement is unreliable and tubes leak, whatever the geometry says. The slicer warns you. Note what sets it: the depth comes from how much *wider* the cell is than your nozzle flat, so a cell only slightly wider than the flat is reached almost immediately. **Your nozzle's flat therefore sets a minimum cell size**, and a smaller flat is what lets you run smaller cells.
 
-It is called *total* because the nozzle gets there in two stages. It drops to the **seal depth** in a single fast move before any filament flows, then sinks the **plunge depth** further *while* the tube fills — that descent is folded into the extrusion moves and paced to them, so it takes exactly as long as the fill and stops the moment the fill does. The sum is the total, and every one of the three depth settings is clamped against it, so no combination can drive the nozzle deeper into your part than the number you set.
+Tube width is the setting; seal depth is the consequence. The readout in the slicer shows the depth your chosen tube costs on your nozzle, along with the resulting injection time — which is the number that actually decides whether the print is clean. See [TUNING.md](TUNING.md).
 
-With **Auto tube width** the slicer runs that budget backwards — it picks the largest tube whose seal depth lands exactly on your immersion budget, so you get the biggest channel your tolerance for deformation allows, with no arithmetic on your part. With a manually set tube width it runs forwards instead: it computes the depth that tube needs and clamps it to the budget, warning you if the tube is so wide that your nozzle cannot seal it within budget. Either way, when the flat already covers the opening outright, no descent is geometrically required and the nozzle presses down by just **Auto slam press** (`magma_auto_slam_press`, 0.1mm) so part-to-part variation cannot leave a gap.
-
-### Plunge (slam-melt)
+### Plunge
 
 A single fixed press can lose its seal as pressure builds, letting plastic mushroom out around the nozzle instead of going down the tube. **Plunge** ramps the nozzle a little deeper *through* the injection (from the seal depth down to seal + plunge depth) so the hot tip keeps sinking into the softening tube top and holds the seal shut while the channel fills. The injection extrusion stays at your set volumetric rate the whole time — the nozzle sinks and extrudes together, with the move's feedrate set so the *extrusion* is paced at your rate (the tiny plunge distance would otherwise let the firmware blast the filament out at full speed).
 
