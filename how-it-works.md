@@ -10,21 +10,11 @@ The infill itself is a modified version of an ordinary infill pattern, with addi
 
 ### The four patterns
 
-You pick the pattern with `sparse_infill_pattern`; the four, in the order they appear in the selector:
-
-- **Magma Honeycomb** — a regular pointy-top hexagonal tiling. Like the other patterns, the hexagon size comes from the tube interior width, not the infill density. Its toolpath reuses OrcaSlicer's native honeycomb path — one fast, continuous vertical zigzag per lane-pair, which keeps travel (and print time) low. A side effect of that zigzag is that the vertical walls get drawn twice (doubled) while the slanted walls stay single; the doubling is exactly what makes Orca's honeycomb so quick to print, and Magma keeps that speed. So the doubled walls don't squish the cell, the lattice is pre-expanded, so the open, injectable tube still comes out a regular hexagon.
-- **Magma Rectilinear** — square cells from two perpendicular single-wall line families, with square windows on the shared edge.
-- **Magma Triangle** — equilateral-triangle cells, three families of 60-degree lines (the original Magma pattern).
-- **Magma Tri-hex** — hexagon cells (hubs) with triangle cells filling the gaps (vents). Instead of pairing two cells into a U, one injection fills a *manifold*: a hub plus several equal-length vent legs, all filled in one shot. A second pass hands each still-empty vent to whichever nearby hub-tube can fill the most of it, so fill follows the geometry — more legs in open areas, gracefully down to a plain U-tube where the part is pinched.
-
-| | Cells & lines | Injection unit | Notes / when to use |
-|---|---|---|---|
-| **Honeycomb** | regular hexagons, native honeycomb zigzag | U-tube (2 cells) | Reuses Orca's fast, low-travel honeycomb toolpath, so it prints quickly. Vertical walls come out doubled, and the lattice is pre-expanded so the open tube stays a regular hexagon. No line crossings to over-extrude, and the roundest opening of the four (ratio 2/√3 ≈ 1.15), so it seals with the least descent. Sealed poorly on the one plate that tested it, possibly because those doubled walls leave a join running the full tube height — see [PATTERNS.md](PATTERNS.md). |
-| **Rectilinear** | squares, 2 perpendicular families at 90° | U-tube (2 cells) | The **default**. Seals easily (opening/bore ratio √2 ≈ 1.41) and prints fastest (2 straight families, not 3), at fewer tubes per area. Good for blocky / orthogonal parts. |
-| **Triangle** | equilateral triangles, 3 line families at 60° | U-tube (2 cells) | Packs the most tubes per area, but has the **worst sealing geometry** — opening/bore ratio 2.0, so the nozzle must descend much further to cover an opening twice the usable bore. The slicer warns when you select it. |
-| **Tri-hex** | hexagon hubs + triangle vents | manifold (hub + N vents) | One injection fills a hub plus many legs, so it covers **open areas** efficiently and degrades gracefully to a plain U-tube where the part pinches. |
-
-All four share the same solver, injection sequence, sealing, and preview — only the cell shape, the window placement, the line families (and, for Honeycomb, the doubled-wall toolpath) differ. Pick one with `sparse_infill_pattern` (or, in a dual-zone print, with the outer-zone pattern).
+Honeycomb, Rectilinear, Triangle and Tri-hex, chosen with `sparse_infill_pattern`. Cell size
+comes from the tube interior width, not the infill density. They differ in cell shape, window
+placement and line families; the solver, injection sequence, sealing and preview are shared.
+Rectilinear is the default. See [PATTERNS.md](PATTERNS.md) for how they compare and which to
+use.
 
 A cell is only kept on a given layer if its clipped cross-section is at least 70% of the ideal cell area and the injection point still has room to seal against its opening (see [the solver](#staggering-the-solver)); pinched or clipped-away cells are dropped, and the volume injected into each tube is measured directly from the printed lattice, layer by layer (see [How much gets injected](#how-much-gets-injected)).
 
@@ -50,13 +40,13 @@ There are two solver modes. Basic is a fast greedy pass (about a second) that co
 
 ## Dual Infill Zones
 
-Solid fill is heavy and slow. And most of it doesn't contribute much to part strength. The "shell" of the object is where stress is concentrated, and what gives it strength. 
+Solid fill is heavy and slow. And most of it doesn't contribute much to part strength. The "shell" of the object is where stress is concentrated, and what gives it strength.
 
 Existing solutions are varying forms of manual "parts hollowing". This is annoying and creates problems like supports being printed in the part interior.
 
 A better solution is automatic hollowing. A thin shell between the inner and outer zones lets you assign a different infill type to each.
 
-Magma currently supports such a "dual zone" infill. With Magma outer shell, and user selectable inner "yolk". This allows the use of a lightweight infill like lightning in the inner yolk while preserving part strength via the solid Magma outer zone. 
+Magma currently supports such a "dual zone" infill. With Magma outer shell, and user selectable inner "yolk". This allows the use of a lightweight infill like lightning in the inner yolk while preserving part strength via the solid Magma outer zone.
 
 ![Cutaway after slicing](assets/screenshots/03-dual-zone.png)
 
@@ -86,9 +76,9 @@ Injection runs as the print climbs, not all at the end. At the right height the 
 
 ### How much gets injected
 
-The volume pushed into each U-tube is **measured from the actual printed toolpath**, not estimated from the cell geometry. Once the infill is generated, Magma walks each layer of a tube's run and takes the open void — the pair's cells inside the Magma zone, minus the footprint of the walls actually deposited there — and multiplies by the layer height. Summed up the run, that is the real injectable cavity. Because it is literally the leftover air, one measurement automatically accounts for doubled walls, overlapping line crossings, the window gap, and any cells clipped by the part edge, with no per-pattern math.
+The volume pushed into each U-tube is **measured from the actual printed toolpath**, not estimated from the cell geometry. Magma walks each layer of a tube's run, takes the open void (the pair's cells inside the Magma zone, minus the walls actually deposited there) and multiplies by layer height. Summed up the run, that is the real injectable cavity.
 
-Where infill lines cross they deposit plastic twice, and that doubled material is subtracted from the injected volume too, so the number can never over-inject. Honeycomb is the exception: its corners are three wall *ends* meeting at 120°, not crossings, so there is nothing doubled and nothing to subtract.
+Because it measures leftover air, one calculation covers doubled walls, overlapping line crossings, the window gap and cells clipped by the part edge, with no per-pattern math. Crossings deposit plastic twice and that material is subtracted too, so the number can never over-inject. Honeycomb is the exception: its corners are three wall *ends* meeting at 120°, not crossings, so there is nothing to subtract.
 
 ### Sealing depth
 
@@ -100,14 +90,18 @@ Tube width is the setting; seal depth is the consequence. The readout in the sli
 
 ### Plunge
 
-A single fixed press can lose its seal as pressure builds, letting plastic mushroom out around the nozzle instead of going down the tube. **Plunge** ramps the nozzle a little deeper *through* the injection (from the seal depth down to seal + plunge depth) so the hot tip keeps sinking into the softening tube top and holds the seal shut while the channel fills. The injection extrusion stays at your set volumetric rate the whole time — the nozzle sinks and extrudes together, with the move's feedrate set so the *extrusion* is paced at your rate (the tiny plunge distance would otherwise let the firmware blast the filament out at full speed).
+A single fixed press can lose its seal as pressure builds, letting plastic mushroom out around the nozzle instead of going down the tube. **Plunge** ramps the nozzle deeper *through* the injection, from seal depth down to seal + plunge depth, so the hot tip keeps sinking into the softening tube top and holds the seal shut while the channel fills.
+
+The nozzle sinks and extrudes together. The move's feedrate is set so the *extrusion* is paced at your volumetric rate, since the tiny plunge distance would otherwise let the firmware blast the filament out at full speed.
 
 > ⚠️ Because injection extrudes a lot while the nozzle barely moves, **Klipper aborts the print** at the first injection unless you raise `max_extrude_cross_section` (and `max_extrude_only_distance`) in `printer.cfg` — see the [README setup note](README.md#-printer-firmware-setup--required-before-you-print). It can't be set from G-code.
 
 ### Crater ironing
 
-Pressing a round nozzle into a triangular tube top always displaces a little plastic into a raised rim around a small crater — and the nozzle picks up a blob that would otherwise string to the next tube. **Crater ironing** is a special ironing pass right after each injection: the nozzle spirals inward over the spot so its angled cone plows the rim back into the crater (pushing it in *and* down) and irons the surface flat, while the motion scrapes the nozzle clean. It hovers over neighbouring cells on the way in — so it never irons a neighbour's air hole shut — and only presses down over its own crater. Travel to the next tube then uses the printer's normal z-hop and avoid-crossing. The pass deposits no plastic, so in the slice preview it shows up under the **Wipe** move type (tagged as Ironing) rather than as an injection — turn on Wipe (or Travel) in the preview's move-type options to see it.
+Pressing a round nozzle into a tube top displaces plastic into a raised rim around a small crater, and the nozzle picks up a blob that would otherwise string to the next tube. **Crater ironing** runs right after each injection: the nozzle spirals inward over the spot so its angled cone plows the rim back into the crater and irons the surface flat, while the motion scrapes the nozzle clean.
+
+It hovers over neighbouring cells on the way in so it never irons a neighbour's air hole shut, and presses down only over its own crater. The pass deposits no plastic, so the preview shows it under the **Wipe** move type (tagged as Ironing) rather than as an injection. Turn on Wipe or Travel in the preview's move-type options to see it.
 
 ### Injection order
 
-By default the injections on a layer are visited in shortest-travel order. But when two neighbouring cells get injected back-to-back, their combined heat can re-melt the thin walls between them and break the seal. **Spread heat** order fixes that: across every object on the plate it builds a per-layer order that deliberately separates spatially-near injections in time, so heat from one has dissipated before its neighbour is touched. It works like dispersion — repeatedly inject wherever is currently "coolest", treating each past injection as a heat source that fades with both time *and* distance, then a quick cleanup pass fixes any leftover clustering. Because it counts real travel time, a longer hop to a far cell is treated as extra cooling rather than pure cost. It runs in well under a millisecond during slicing and is cached.
+By default the injections on a layer are visited in shortest-travel order. But when two neighbouring cells get injected back-to-back, their combined heat can re-melt the thin walls between them and break the seal. **Spread heat** order fixes that. Across every object on the plate it builds a per-layer order that separates spatially-near injections in time, so heat from one dissipates before its neighbour is touched. It works by dispersion: repeatedly inject wherever is currently coolest, treating each past injection as a heat source fading with both time and distance, then a cleanup pass fixes leftover clustering. Because it counts real travel time, a long hop to a far cell counts as extra cooling rather than pure cost. It runs in well under a millisecond and is cached.

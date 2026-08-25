@@ -3,6 +3,10 @@
 Fourth Magma infill pattern, after Triangle, Rectilinear, and Tri-hex. This note is
 the implementation reference; the design below is settled.
 
+> **Print note:** honeycomb sealed poorly on the one plate that tested it. The suspected cause
+> is the doubled vertical walls described below, which leave a join running the full height of
+> the tube. Unconfirmed, and it predates the current seal model. See [PATTERNS.md](PATTERNS.md).
+
 **Terminology:** honeycomb cells are regular **hexagons** that pair into the same
 **U-tube** as the triangle and rectilinear patterns — two adjacent cells joined by a
 window gap at their shared wall, injected down one and vented up the other. It is the

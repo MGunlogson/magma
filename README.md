@@ -56,16 +56,17 @@ The solver also staggers the tube ends so neighboring tubes do not all start and
 
 ## What happened when I tested it
 
-I ran about a hundred prints on an ancient clunky Ender 3. The slicer side works end to end. I haven't gotten a clean print yet though.
+I ran about a hundred prints on an ancient clunky Ender 3. The slicer side works end to end, and the settings in [TUNING.md](TUNING.md) print cleanly on that machine. Getting there took working out what actually governs a good injection, which is what the observations below are.
 
 ### Observations
-
 
 #### Tube top compromise
 
 The tube top melts while injecting if the injection runs long, which breaks the seal. This is the dominant failure mode, and the best predictor of it is how many seconds each injection takes: 1.5 s is clean, 2 s deforms the lattice, 3 s destroys it. Injection already runs at the filament's max volumetric rate, so the only lever is less plastic per tube. Shorter tubes first, then narrower. See [TUNING.md](TUNING.md).
 
-Two mechanisms fit every test print and we have not separated them. Either the nozzle acts as a heat source for as long as it is sealed in, or the melt freezes partway down and backpressure pushes it out past the seal. Both worsen with longer injections. Worth trying either way: lower-viscosity injection material, a heat break or film at the nozzle face, or injecting something that is not a thermoplastic. A related failure — neighbouring cells melting each other when injected back-to-back — is what the **Spread heat** injection order (`magma_injection_ordering`) is for: it spaces nearby injections out in time so the heat dissipates between them.
+Two mechanisms fit every test print and we have not separated them. Either the nozzle acts as a heat source for as long as it is sealed in, or the melt freezes partway down and backpressure pushes it out past the seal. Both worsen with longer injections. Worth trying either way: lower-viscosity injection material, a heat break or film at the nozzle face, or injecting something that is not a thermoplastic.
+
+A related failure is neighbouring cells melting each other when injected back-to-back. That is what the **Spread heat** injection order is for: it spaces nearby injections out in time so the heat dissipates between them.
 
 #### Injection flow limitations
 
@@ -112,7 +113,7 @@ install the only one you *must* set yourself is the nozzle tip flat.
 | Sparse infill pattern | Magma Rectilinear (default) |
 | **Nozzle tip flat** | **required** — measure your nozzle's flat tip face with calipers (a stock E3D V6 0.6 measures ~1.75 mm). Slicing fails with instructions until it is set |
 | Tube interior width | 1.6 mm |
-| Max tube height | 3.5 mm (3.8 for the recipe below) |
+| Max tube height | 3.5 mm |
 | Plunge depth | 0.4 mm |
 | Injection speed | 0 — the filament's max volumetric rate |
 | Injection order | Spread heat |
