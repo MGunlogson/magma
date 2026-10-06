@@ -4,7 +4,33 @@ render_with_liquid: false
 
 # Defensive Publication: Magma Vertical Reinforcement Infill System for FDM 3D Printing
 
-**Publication Date:** February 9, 2026 (Updated March 16, 2026)
+**Published:** first pushed to https://github.com/MGunlogson/magma on **May 6, 2026**, and
+publicly announced on **June 9, 2026** (Show HN, and OrcaSlicer pull request
+[#14122](https://github.com/OrcaSlicer/OrcaSlicer/pull/14122)). The implementing code has been
+public since May 6, 2026, in https://github.com/MGunlogson/OrcaSlicer (branch `magma-infill`).
+Material added later became public on the dates listed in the
+[Prior Art Declaration](#prior-art-declaration).
+
+> **Note (August 25, 2026):** The body of this disclosure is preserved as published. Parts of it
+> have since been superseded — by test-print evidence, and by an audit of the text against the
+> shipping source. See **[Addendum A](#addendum-a-superseded-mechanisms-august-25-2026)** for what
+> changed and what still stands, and **[Addendum B](#addendum-b-further-disclosure-august-25-2026)**
+> for mechanisms the original text failed to disclose at all. Superseded material is deliberately
+> **not** removed: a defensive publication records what was disclosed on a date, and editing it
+> after the fact would defeat its purpose. Sections 7.c, 7.g and 8 are the most heavily
+> superseded; read Addendum A before implementing from any of them.
+
+**Where to start.** This is a long document with a specific job, and the order below is not the
+order most readers want:
+
+* **To judge whether any of this is new** — read [Section 1.1, Relationship to Prior
+  Art](#11-relationship-to-prior-art) first. It credits the prior work in this area
+  and states plainly which parts claim no novelty. It is the honest summary of what is actually
+  contributed here.
+* **To build something** — Sections 3 through 9 are the implementation, but read Addendum A
+  alongside them.
+* **To check what testing actually showed** — Addendum A.3 and A.4.
+* **For the legal position** — Section 12.
 
 **Authors:** Mark Gunlogson
 
@@ -14,7 +40,7 @@ render_with_liquid: false
 
 ## 1. Abstract
 
-This defensive publication discloses a complete software system for vertical reinforcement of Fused Deposition Modeling (FDM) 3D printed parts. The system, named Magma, modifies open-source slicer software (OrcaSlicer) to generate a triangular lattice infill pattern containing hollow channels (tubes) that are filled with injected molten plastic **during printing on a per-layer basis** -- not as a post-print operation. The injection occurs as a dedicated print stage within each layer's processing, using the printer's existing extruder at elevated temperature.
+This defensive publication discloses a complete software system for vertical reinforcement of Fused Deposition Modeling (FDM) 3D printed parts. The system, named Magma, modifies open-source slicer software (OrcaSlicer) to generate a user-selectable lattice infill pattern -- triangular, rectilinear (square), tri-hex (hexagon + triangle), or honeycomb (regular hexagon) -- containing hollow channels (tubes) that are filled with injected molten plastic **during printing on a per-layer basis** -- not as a post-print operation. The injection occurs as a dedicated print stage within each layer's processing, using the printer's existing extruder at elevated temperature.
 
 The system requires **no hardware modifications** to standard FDM printers. It is implemented entirely as software modifications to the slicer's infill generation, G-code output, and preview rendering subsystems.
 
@@ -24,7 +50,7 @@ Key technical innovations disclosed herein include:
 
 2. A three-constraint spiral offset system that creates helical, interlocking tubes by applying a circular translation to the entire lattice per layer, with displacement bounded by line overlap, tube area overlap, and helix angle constraints.
 
-3. A coupled thermal-pressure injection depth model (designed and tested, currently replaced by user-configured tube height -- see Section 9.e) where the volumetric injection speed variable drops out of the simultaneous equations, yielding an optimal tube height that self-adjusts to balance thermal freezing and extruder pressure limits.
+3. A coupled thermal-pressure injection depth model (designed and tested, currently replaced by user-configured tube height -- see Section 10.e) where the volumetric injection speed variable drops out of the simultaneous equations, yielding an optimal tube height that self-adjusts to balance thermal freezing and extruder pressure limits.
 
 4. A dual-identity lattice architecture where cell identity (for stable tube pairing across layers) uses a fixed reference lattice, while per-layer geometry checks (for boundary detection and rendering) use a spiral-offset lattice.
 
@@ -36,7 +62,77 @@ Key technical innovations disclosed herein include:
 
 8. A 5-tier safe park positioning system that finds optimal nozzle positions during injection temperature changes by classifying print surface regions (empty > support > sparse infill > solid infill > z-hop only).
 
+9. An automatic, **per-tube** Z-slam sealing-depth model derived from nozzle cone geometry, in which each tube's press-down depth is computed from that tube's ACTUAL opening at its cap layer (the farthest point of the clipped opening from the injection point), the nozzle tip flat diameter, and the nozzle cone half-angle as `depth = max(epsilon, (opening + margin - flat) / (2 * tan(half_angle)))`, so the widening cone above the tip flat reaches each individual opening's width and seals it without manual tuning. Because the depth is derived per tube from the real (possibly boundary-clipped) opening rather than a single global ideal, smaller boundary openings receive a correspondingly shallower, non-over-pressed slam.
+
+10. A global, per-print-layer thermal-aware injection ordering that, across all objects and instances on a layer, separates spatially-near injections in time to prevent combined heat from re-melting neighbouring cells. It is driven by a continuous decay field in which every prior injection is a heat source fading in both time and space (`exp(-dt/tau) * exp(-dist/lambda)`), built by a dispersion greedy that injects wherever is currently coolest-on-arrival and refined by a violation-directed local search; because `dt` is real elapsed injection time, inter-injection travel counts as cooling rather than opposing the spread. The solved order is cached in a dedicated slicing stage. (An equivalent exact CP-SAT routing formulation of the same objective was also implemented, measured, and is disclosed in Section 7.h as an alternative.)
+
+11. A progressive-plunge ("slam-melt") injection in which the sealing nozzle is ramped deeper into the tube top *during* extrusion, from the geometric seal depth to that depth plus a configured plunge, so the hot tip continuously sinks into the softening surface and maintains the seal under the rising channel pressure -- driving plastic down the tube instead of letting it escape laterally around the nozzle -- while the extrusion holds its commanded volumetric rate.
+
+12. A neighbour-aware crater-ironing finishing move that, after each injection, spirals the nozzle inward over the injection point so the angled nozzle cone plows the displaced rim back into the crater (deflecting material both inward and downward by the cone-normal geometry) and irons it flat while scraping the nozzle clean; the nozzle hovers above layer height over neighbouring cells and only descends to press inside a geometrically-derived radius that keeps the flat clear of any neighbouring tube opening's far vertex, guaranteeing a neighbour's air-escape hole is never sealed.
+
+13. A shape-generic lattice and geometry abstraction in which the tube grid, neighbour pairing, window placement, opening size, cell-area/volume, and injection geometry are all expressed through a per-shape strategy interface, so multiple infill patterns -- triangular (equilateral cells), rectilinear (square cells), tri-hex (hexagon + triangle cells), and honeycomb (regular hexagon cells) -- share a single tube-assignment solver, injection pipeline, and preview-rendering pipeline. Tri-hex additionally uses vent-based injection allocation (a single injection serving multiple connected vents) rather than only pairwise U-tube coupling. Any pattern may also serve as the outer-zone fill in the dual-zone architecture.
+
+14. A dual cell-presence gate that admits a cell as a tube cell on a given layer only when BOTH (a) its clipped interior area is at least a fixed fraction (70%) of the ideal cell area AND (b) the injection point retains at least the nozzle-flat radius of clearance to the nearest opening boundary. The area test bounds how much of the cross-section survives clipping; the clearance test -- evaluated at the actual injection point -- rejects shapes where a spike or pinch intrudes toward the centre (which the area test alone would pass), guaranteeing the nozzle flat can seat. This unified per-layer gate supersedes a separate constriction-detection pass, and because injection volume is computed from each layer's actual clipped area, admitted partial cells are dosed proportionally.
+
+15. A clipped-cavity centroid injection point, in which the nozzle aims not at the ideal lattice cell centre but at the centroid of the cell's actual (boundary-clipped) opening at the cap layer. For a regular polygon the centroid coincides with the inscribed-circle centre, so boundary-clipped cells inject at the point of greatest clearance from the part wall instead of at a centre that may sit near or past the clip -- maximizing seal reliability -- and it falls back to the lattice centre if a concave clip places the centroid outside the opening.
+
+16. A one-to-many ("manifold") injection unit and its vent-fill allocation, in which a single injection fills a hub cell plus multiple **equal-length** vent legs -- windows pinned to the hub-tube's bottom so every leg spans the hub-tube's layer range -- and a per-vent allocation maximizes filled volume by: (a) forming an unavailable-layer mask per vent = layers absent due to part geometry UNION layers already committed to other injections; (b) discarding any candidate hub-tube whose layer range crosses that mask (which would trap injected air); and (c) within each remaining present-run, selecting by weighted interval scheduling over the contained hub-tube ranges the non-overlapping set of tubes that fills the most layers, tie-broken toward the least-loaded hub. Each vent layer is filled exactly once and hubs are uncapped, so the allocation is independent per vent and yields the maximal fill achievable with windows aligned to real tube boundaries. The pairwise U-tube is the degenerate single-leg case.
+
+17. A fourth reinforcement-cell tiling -- **Magma Honeycomb** -- a regular pointy-top hexagonal lattice (joining the triangular, rectilinear/square, and tri-hexagonal tilings on the shared shape-generic pipeline of claim 13) whose cell size is driven by the injection tube interior width (nozzle-derived), not by infill density. Its novel embodiment reuses a single continuous honeycomb sweep -- one vertical zigzag per lane-pair, phased to the lattice -- so the pattern prints fast; that sweep inherently traces every vertical cell wall DOUBLED (each vertical lane is swept by both adjacent lane-pairs) while the slanted walls stay single. To keep the open *injectable* tube a true regular hexagon despite the asymmetric wall thickness, the lattice is pre-expanded anisotropically -- horizontal X pitch `interior_width + 2*lw`, top/bottom vertex height `e + lw/sqrt(3)`, and row pitch `1.5*e + lw/sqrt(3)` (with `interior_width` the requested open flat-to-flat, `e = interior_width/sqrt(3)` the OPEN hex edge, `s = interior_width + line_width` the centre-to-centre spacing, and `lw` the line width; note both `e` and the X pitch are derived from the interior width rather than from `s`, since deriving them from `s` leaves the open hexagon one line width too wide) -- so that after the doubled verticals (each intruding `lw`) and single slants (each intruding `lw/2`) eat into the cell, the remaining open cross-section is a regular hexagon of edge `e`. U-tube pairing and shared-wall windows apply exactly as in the other patterns (6 edge-sharing neighbours, 2 cells per pair, no vents).
+
+18. **Measured** injection-volume determination from the deposited toolpath, in which each U-tube's injectable cavity volume is not estimated from closed-form cell geometry but MEASURED from the actually generated infill after the toolpath exists. For each layer of a pair's run the injectable void = (the union of the pair's cell polygons, intersected with the reinforcement zone) MINUS the footprint of the deposited walls (the polygons covered by the extrusion width), summed times layer height over the run. A single geometric measurement thereby captures -- directly from the deposited footprint, with no per-pattern correction terms -- side-by-side doubled walls (such as the honeycomb pattern's doubled verticals), the window gap, and part-edge clipping. The one residual the union footprint cannot see -- the extra material where lines CROSS and stack, which `polygons_covered_by_width` merges into a single union -- is removed by the always-applied, self-scaling correction of claim 19. The measured cavity then drives the injected-plastic dose.
+
+19. A single, self-scaling overlap correction that is ALWAYS applied to the measured injection volume of claim 18, sized to the ACTUAL deposited line width, so the line-crossing over-extrusion is corrected exactly once and never double-counted regardless of how the lines were printed. The system subtracts the over-extruded crossing material from the measured cavity, apportioned per cell from each shape's vertex geometry evaluated at the effective (deposited) line width `lw_eff` (triangle `(3*sqrt(3)/4)*lw_eff^2` per vertex, square `lw_eff^2`, tri-hex `(2/sqrt(3))*lw_eff^2` charged to incident cells by corner count, honeycomb `0` -- its degree-3 junctions are line ends, not crossings). The separate `magma_overlap_line_correction` setting (default off) is a *print-quality* lever, NOT a volume gate: it controls only how the lines PRINT, not whether the volume is corrected. When on, it reduces infill flow so the deposited lines print thinner (floored near 90% of nozzle width, `magma_overlap_min_width`, to avoid sub-nozzle-width lines), which makes `lw_eff` smaller so only the small RESIDUAL crossing overlap of the thinned lines is subtracted; when off (default), the lines print full width and the full overlap is subtracted. Because the subtraction always uses the width actually deposited -- and because the deposited-footprint measurement (claim 18) merges crossing beads into one union, so the second crossing bead's bulge into the void is never captured there -- the overlap is compensated exactly once whatever the setting. *(Implementation status: the `magma_overlap_line_correction` lever was subsequently removed from the shipping slicer for not being useful enough to carry — lines now always print full width and the full overlap is always subtracted. The code remains in git history; this claim is retained as prior art. See the note in Section 4.h.)*
+
 All algorithms, code, and structures described in this document are dedicated to the public domain to establish prior art and prevent patenting by third parties.
+
+### 1.1 Relationship to Prior Art
+
+*This section is contextual. It makes no new disclosure claim and does not alter the publication dates recorded in the Prior Art Declaration below.*
+
+Filling internal cavities with molten material during printing, to bridge layer interfaces, is **not new**. The relevant prior work, and how Magma relates to it:
+
+**ORNL Z-pinning** — Duty, Failla, Kim, Smith, Lindahl, Kunc, "Z-Pinning approach for 3D
+printing mechanically isotropic materials", *Additive Manufacturing* **vol. 27** (2019),
+doi:[10.1016/j.addma.2019.03.007](https://doi.org/10.1016/j.addma.2019.03.007); earlier work
+presented at the 2018 International Solid Freeform Fabrication Symposium. (An earlier revision
+of this section merged the two papers' author lists into one citation.) Voids are intentionally aligned across *n* layers and back-filled continuously during deposition of layer *n+1*. Reported >3.5x increase in Z-direction tensile strength and toughness for PLA and CF-PLA, with strength rising as pin fill volume increased from 0% to 120%. The paper also reports the limiting failure: molten PLA **failed to fully fill the holes, introducing excessive porosity**. This is the closest published antecedent to the core concept and predates the AIM3D priority date below.
+
+**AIM3D Voxelfill** -- commercial process offered through Create it REAL in REALvision Pro. AIM3D's published descriptions offset volume elements by half a layer height between successive layers, producing a brick-bond arrangement that displaces the yield plane, and report up to 81% of XY tensile strength along Z on PETG-GF30. Related patent publication: EP 4100235 B1 and family (priority 2021-03-12).
+
+**Markforged** -- US 12,539,664 B2, "Thermoset injection into fused filament fabrication parts
+with discontinuous and/or continuous reinforcement" (filed 2024-04-24, granted 2026-02-03).
+
+**JanTec Engineering** -- published hobbyist experiments injecting molten plastic into infill channels with a hot end. Three practical findings are directly relevant: (a) molten plastic cools on leaving the nozzle and will not travel far down a deep hole, so cavities must be filled periodically rather than in one shot; (b) bottom-up filling substantially outperforms top-down, achieved by modifying the hot end with an airbrush nozzle for roughly 4mm of additional reach; (c) higher injection temperatures fill cavities more completely but the carried heat risks deforming the surrounding print.
+
+**OrcaSlicer discussion #4815** and related community threads -- multi-year community discussion of G-code-level Z-pinning and 3D injection, without a working slicer implementation.
+
+#### What Magma shares with this prior work
+
+The core concept -- printing internal cavities and filling them with nozzle-extruded molten thermoplastic mid-print to reinforce the Z axis -- was published by ORNL in 2018-2019. No novelty is claimed for it here.
+
+#### What Magma contributes
+
+Magma injects with the printer's existing extrusion nozzle, sealing the nozzle's own tip geometry
+against the mouth of a printed channel, using the same thermoplastic the part is printed from.
+That sealing mechanism and the channel sizing that follows from it (Sections 7.c and 7.g as
+corrected by Addendum A, and the gates in Addendum B.1) are central to what is disclosed here.
+
+Each of JanTec's three published constraints is answered **in software and geometry rather than with modified hardware**, which is what makes the system implementable in a slicer on a stock printer:
+
+| Published constraint | Magma's answer |
+|---|---|
+| Plastic will not travel far down a deep hole | Low-aspect-ratio channels -- roughly 1:1 depth-to-width, ~3mm -- sized from nozzle geometry rather than infill density. The travel distance is shortened instead of the nozzle being lengthened. |
+| Bottom-up filling beats top-down, but requires a modified hot end | The **U-tube pair** (Section 2.3): injection into one cell flows down, through a shared-wall window at the base, and rises up the paired cell, with air escaping the partner's open top. Fill-from-below is obtained from lattice topology, with no hardware change. The manifold generalization (claim 16) extends this to one hub plus N vent legs. |
+| High injection temperature fills better but carried heat deforms the part | **Heat-spread injection ordering** (claim 10, Section 7.h): a global per-layer schedule over a continuous thermal decay field `exp(-dt/tau) * exp(-dist/lambda)`, separating spatially-near injections in time, with real elapsed injection time as the temporal axis so inter-injection travel counts as cooling. |
+
+Beyond these, the contributions for which prior art is established in the sections below are principally: the **constrained-optimization formulation of tube placement** (claims 1, 5; Sections 5.a-5.i), in which weak-plane avoidance is expressed as a *soft cumulative capacity penalty subtracted from the objective* rather than as a fixed geometric offset -- so boundary spread adapts to real part geometry, presence runs, and height bounds instead of following a uniform brick-bond; the **designated vent** for air escape, which directly targets the porosity failure ORNL reported; the shape-generic multi-pattern lattice abstraction (claim 13); and the per-tube sealing, plunge, and crater-ironing models (claims 9, 11, 12).
+
+#### Empirical findings that differ from the published guidance
+
+**Periodic fill is counterproductive with an unmodified nozzle.** JanTec's recommendation to fill a cavity in several doses over time was tested and rejected. With a stock nozzle, deposition is necessarily top-down: the first dose solidifies at the channel *entry* rather than at the base, forming a plug that subsequent injections cannot pass. Periodic filling and the extended-reach nozzle are not independent techniques -- the former depends on the latter. Without the hardware modification, the correct approach inverts to a **single injection per tube at elevated temperature and flow rate**, with thermal load managed across the layer by injection ordering rather than within a tube by dose splitting.
+
+**The seal, not the flow, is the binding constraint at same-material.** With the geometry and scheduling above resolving reach and thermal load, the remaining failure mode is melting of the tube-top rim during injection: the injectate and the cell wall are the same polymer, and the elevated temperature required for flow is the same temperature that softens the seal. Sections 7.c and 7.d (per-tube Z-slam with progressive plunge, and neighbour-aware crater ironing) mitigate but do not eliminate this. It is a materials constraint rather than a geometric or scheduling one, and the indicated resolution is a dissimilar-material pairing -- a high-HDT shell (CF-Nylon, PC) with a lower-melt injectate -- for which the multi-material path is implemented (claim in Section 7.e) but which the author has not been able to test for lack of dual-extruder hardware.
 
 ---
 
@@ -44,15 +140,15 @@ All algorithms, code, and structures described in this document are dedicated to
 
 ### 2.1 Magma Tubes
 
-Hollow channels formed within the triangular lattice infill pattern. Each tube is defined by a single triangular cell's interior space, bounded by the infill line walls on three sides and by the layers above and below. The interior cross-section is an equilateral triangle with side length equal to the cell's interior width (auto-calculated from nozzle geometry, or user-specified). Tubes span multiple layers vertically and are filled with injected plastic during printing.
+Hollow channels formed within the selected Magma lattice infill pattern. Each tube is defined by a single lattice cell's interior space, bounded by the infill line walls and by the layers above and below. The interior cross-section depends on the chosen pattern -- an equilateral triangle (Magma Triangle), a square (Magma Rectilinear), a hexagon or triangle (Magma Tri-hex), or a regular hexagon (Magma Honeycomb) -- sized by the cell's interior width (auto-calculated from nozzle geometry, or user-specified). Tubes span multiple layers vertically and are filled with injected plastic during printing.
 
 ### 2.2 Windows (Fenestrations)
 
-Gaps intentionally left in the shared infill walls between two adjacent triangular cells. A window is created by omitting a segment of the infill line that forms the shared edge between two cells, for a specified number of layers (the window height). Windows connect paired tubes to form U-tube pairs, allowing injected plastic to flow from one cell down through the window into the adjacent cell.
+Gaps intentionally left in the shared infill walls between two adjacent cells. A window is created by omitting a segment of the infill line that forms the shared edge between two cells, for a specified number of layers (the window height). Windows connect paired tubes to form U-tube pairs, allowing injected plastic to flow from one cell down through the window into the adjacent cell.
 
 ### 2.3 U-tube Pairs
 
-Two adjacent triangular cells connected by a window at their shared edge. Plastic is injected into one cell (cell_a, the injection side) at the top of the tube, flows down through the tube, crosses through the window into the adjacent cell (cell_b, the vent side), and rises up. The resulting solidified plastic forms a U-shaped interlocking reinforcement column. Each U-tube pair has a defined start layer (bottom), end layer (top/cap), and injection volume.
+Two adjacent cells connected by a window at their shared edge. Plastic is injected into one cell (cell_a, the injection side) at the top of the tube, flows down through the tube, crosses through the window into the adjacent cell (cell_b, the vent side), and rises up. The resulting solidified plastic forms a U-shaped interlocking reinforcement column. Each U-tube pair has a defined start layer (bottom), end layer (top/cap), and injection volume.
 
 ### 2.4 Stagger Levels
 
@@ -288,7 +384,9 @@ Lattices are pre-built per layer during `build()` and cached in `m_layer_data[la
 
 The reference lattice (zero offset) is used to enumerate cells and assign (a,b,c) coordinates. The layer lattice (with spiral offset) is used for geometric checks: is the cell center inside the model boundary? What is the cell's area after clipping to the model? This dual-lattice approach ensures that tube assignments are stable while geometric computations reflect the actual per-layer positions.
 
-### 3.e Two-Tier Constriction Detection
+### 3.e Two-Tier Constriction Detection (superseded by the dual presence gate)
+
+**Historical note:** the standalone two-tier constriction-detection pass below has been **superseded by the dual cell-presence gate** (Section 1, claim 14, and Section 3.f). A cell now counts as present on a layer only if its clipped area is at least 70% of the ideal cell area AND the injection point keeps at least the nozzle-flat radius of clearance to the nearest opening boundary. Because that per-layer gate already excludes any under-area or pinched layer from a cell's presence, no separate constriction pass is run. The original algorithm is retained here for prior art.
 
 Constriction detection identifies layers where a cell's usable area drops sharply, indicating a geometric pinch point (e.g., where a model narrows) that would block injection flow. A tube should not bridge across such a constriction.
 
@@ -379,7 +477,7 @@ for (const TriangleCell &cell : cells) {
 }
 ```
 
-Interior cells (center inside the inset region by half the interior width) use the precomputed ideal triangle area, avoiding polygon clipping entirely. Boundary cells undergo exact polygon intersection to determine their actual usable area, with a 90% minimum area threshold to reject cells too constricted for plastic flow.
+Interior cells (center inside the inset region by half the interior width) use the precomputed ideal cell area, avoiding polygon clipping entirely. Boundary cells undergo exact polygon intersection to determine their actual usable area. A cell is admitted on a layer only if that area is at least **70%** of the ideal cell area AND the injection point retains at least the nozzle-flat radius of clearance to the nearest opening boundary (the dual presence gate of claim 14): the area term rejects cells too clipped to hold a useful tube, while the clearance term rejects spikes or pinches intruding toward the injection point that the area term alone would pass. Injection volume is then computed from each layer's actual clipped area, so an admitted partial cell is dosed proportionally.
 
 ### 3.g Adaptive Layer Height Support
 
@@ -409,6 +507,107 @@ for (int i = span.start; i <= span.end; ++i) {
     }
 }
 ```
+
+### 3.h Magma Honeycomb Pattern -- Continuous Sweep with Anisotropic-Stretch Compensation
+
+Magma Honeycomb is a fourth selectable reinforcement-cell tiling alongside Magma Triangle, Magma Rectilinear, and Magma Tri-hex. It is a regular pointy-top hexagonal (honeycomb) tiling: every cell is a hexagon with a vertical left and right edge and four slanted edges, bordering six edge-sharing neighbours. Unlike Tri-hex there are no triangular vents -- two adjacent hexagons pair into an ordinary two-cell U-tube (window cut in their shared edge), exactly as triangle and rectilinear cells do. The cell size is driven by the injection tube interior width (auto-derived from nozzle geometry, or user-specified), not by an infill-density percentage: the center-to-center spacing is `s = interior_width + line_width`, and the **open** hexagon edge is `e = interior_width / sqrt(3)` -- derived from the interior width, not from `s`, so that the printed open tube's flat-to-flat is exactly `interior_width` (deriving `e` from `s` leaves the open hexagon one line width too wide).
+
+Because a hexagon is the Tri-hex *hub* shape, the per-shape geometry strategy reuses the hub formulas (open area, seal opening, inscribed radius, auto-sizing). The differences from Tri-hex are only the hub-vs-vent specifics: the neighbour distance is hexagon-to-hexagon (one full spacing), the window feeds the paired hexagon rather than a vent, and the wall junction is the degree-3 honeycomb vertex (three walls meeting at 120 degrees, i.e. line *ends*, not a line crossing).
+
+```cpp
+// src/libslic3r/Magma/MagmaHexCell.hpp — HexagonGeometry
+
+// Open hexagon area. Open apothem a' = s/2 - lw/2 = (s - lw)/2 = interior/2.
+// Regular hexagon area from apothem a:  2*sqrt3*a^2.
+double inset_open_area(double spacing, double line_width) const override {
+    double a = (spacing - line_width) * 0.5;          // open apothem
+    return a > 0.0 ? 2.0 * SQRT3 * a * a : 0.0;
+}
+
+// Seal opening = circumscribed circle of the open hexagon = 2*open circumradius,
+// open circumradius = open_apothem / (sqrt3/2) = (s-lw)/sqrt3.
+double opening_diameter(double spacing, double line_width) const override {
+    double s = spacing - line_width;
+    return s > 0.0 ? 2.0 * s * INV_SQRT3 : 0.0;
+}
+
+// Inverse of opening_diameter(): the interior whose hex opening is exactly `opening`.
+// opening = 2*interior/sqrt3  ->  interior = opening * sqrt3 / 2.
+double interior_for_opening(double opening, double /*line_width*/) const override {
+    return opening > 0.0 ? std::max(0.1, opening * SQRT3 * 0.5) : 0.1;
+}
+
+// Degree-3 honeycomb junctions are line ENDS, not crossings -> no crossing overlap.
+double vertex_overlap_excess_area(double /*line_width*/) const override { return 0.0; }
+```
+
+**Continuous honeycomb sweep (the novel toolpath).** Rather than tracing each hexagon's perimeter -- which forces many direction changes and short segments -- the pattern reuses a single continuous honeycomb zigzag per *lane-pair*, the same fast, low-travel sweep used by ordinary honeycomb infill. The vertical hexagon edges fall on lanes spaced half the (stretched) flat-to-flat distance apart; one zigzag oscillates between two adjacent lanes `k` and `k+1`, drawing a vertical edge (length `e`), a slant up to the next lane's vertical (whose bottom is a hexagon vertex), that vertical, and a slant back -- a period of `2*row` in Y, phased at `oy + row*(k-1)`:
+
+```cpp
+// src/libslic3r/Fill/FillMagma.cpp — FillMagmaHoneycomb::_fill_surface_single
+
+const double s    = this->tube_map->cell_spacing();     // centre-to-centre = interior + lw
+const double iw   = this->tube_map->interior_width();   // OPEN flat-to-flat (user spec)
+const double lw   = s - iw;                             // line width
+const double e    = iw * magma::INV_SQRT3;              // OPEN hex edge = interior/sqrt3
+const double row  = 1.5 * e + lw * magma::INV_SQRT3;    // lattice row spacing (Y)
+const double half = (iw + 2.0 * lw) * 0.5;              // lane pitch = m_sx/2 = (interior + 2lw)/2
+for (int k = k_min; k <= k_max; ++k) {
+    const double xL  = ox + double(k)     * half + x_off;
+    const double xR  = ox + double(k + 1) * half - x_off;
+    const double phi = oy + row * double(k - 1);
+    Polyline pl;
+    for (int j = j_min; j <= j_max; ++j) {
+        const double b = phi + 2.0 * row * double(j);
+        pl.points.push_back(Point(scale_(xL), scale_(b - e * 0.5)));
+        pl.points.push_back(Point(scale_(xL), scale_(b + e * 0.5)));
+        pl.points.push_back(Point(scale_(xR), scale_(b + row - e * 0.5)));
+        pl.points.push_back(Point(scale_(xR), scale_(b + row + e * 0.5)));
+    }
+    // ...
+}
+```
+
+A consequence of this lane-pair sweep is that every vertical lane is traced by *both* of the lane-pairs that border it: the vertical cell walls are drawn **doubled** (two beads, total width `2*lw`, centred on the edge, intruding `lw` into the open cell), while the slanted walls are drawn **single** (one bead, intruding `lw/2`). Left uncompensated, the open cross-section would come out skewed -- its vertical edges effectively longer than its slants -- and would not be a regular hexagon, defeating the round-nozzle seal that depends on a regular opening.
+
+**Anisotropic lattice pre-stretch.** To make the *open* tube a true regular hexagon despite the asymmetric wall thickness, the lattice is pre-expanded on each affected axis by exactly the wall geometry, so that after the doubled verticals and single slants intrude, what remains is a regular hexagon of edge `e`:
+
+```cpp
+// src/libslic3r/Magma/MagmaHexCell.hpp — HexLattice
+// Built OUTWARD from the OPEN hexagon (interior = cell_spacing - line_width), so the
+// printed open tube comes out at exactly the requested interior width:
+//   X pitch: interior + 2*lw   (the doubled wall, lw each side)            -> m_sx
+//   top/bottom vertex (Y): e + lw/sqrt3  (the slant inset lifts the apex)  -> m_vtop
+//   row spacing (Y): 1.5*e + lw/sqrt3  (= keeps the tiling closed)         -> m_row
+explicit HexLattice(double cell_spacing, double offset_x = 0.0, double offset_y = 0.0,
+                    double line_width = 0.0)
+    : m_cell_spacing(cell_spacing)
+    , m_edge(hex_edge_length(std::max(0.0, cell_spacing - std::max(0.0, line_width))))
+                                                                  // e = interior / sqrt3
+    , m_sx  (cell_spacing + std::max(0.0, line_width))             // = interior + 2*lw
+    , m_vtop(m_edge + std::max(0.0, line_width) * INV_SQRT3)      // extended top/bottom vertex
+    , m_row (1.5 * m_edge + std::max(0.0, line_width) * INV_SQRT3)// extended row spacing
+    , m_offset_x(offset_x), m_offset_y(offset_y)
+{}
+
+std::vector<Vec2d> cell_corners(const CellId &c) const override {
+    const Vec2d ctr = center(c.a, c.b);
+    const double hx = m_sx * 0.5;     // half (stretched) flat-to-flat
+    const double hy = m_edge * 0.5;   // half edge length (vertical edge stays e)
+    return { Vec2d(ctr.x() + hx, ctr.y() + hy),    //  30 deg (upper right)
+             Vec2d(ctr.x(),      ctr.y() + m_vtop),//  90 deg (top vertex, extended)
+             Vec2d(ctr.x() - hx, ctr.y() + hy),    // 150 deg (upper left)
+             Vec2d(ctr.x() - hx, ctr.y() - hy),    // 210 deg (lower left)
+             Vec2d(ctr.x(),      ctr.y() - m_vtop),// 270 deg (bottom vertex, extended)
+             Vec2d(ctr.x() + hx, ctr.y() - hy) };  // 330 deg (lower right)
+}
+```
+
+The vertical-edge length is held at `e` (the `+-hy` corners), while the horizontal span gains `2*lw` and the top/bottom apexes and row pitch gain `lw/sqrt(3)`. With all three adjustments, the open hexagon's vertical and slanted edges come out exactly equal (both `e`): a regular open tube that the round/conical injection nozzle can seal as in the other patterns. The hexes are addressed by axial `(q, r)` coordinates packed into the shared `CellId`, with cube-rounding for point-to-cell lookup and the standard six pointy-top axial neighbours, so the same tube-assignment solver, U-tube pairing, window placement, injection, and preview pipeline (claim 13) operate unchanged.
+
+**Windows.** Each open pair's shared wall is removed by subtracting a rectangle laid over the shared edge, wide enough (`x_off + lw` half-width) to span both doubled verticals and shortened by a bead so the hexagon corners survive, then the swept polylines are clipped to the region and chained into continuous sweeps. Window height is auto-derived from the partner hexagon's open cross-section (`auto_window_height = open_area / open_edge`), matching the cross-section flow area as in the triangle and square patterns.
+
+**Prior-art scope.** This disclosure establishes prior art for: (a) a regular-hexagon (honeycomb) vertical-reinforcement injection-infill tiling whose cell size is set by the nozzle-derived tube interior width rather than an infill density; (b) generating its toolpath as a single continuous lane-pair honeycomb zigzag (rather than per-hexagon perimeters) for fast, low-travel printing; (c) the resulting doubled vertical walls / single slanted walls produced by that sweep; and (d) anisotropically pre-stretching the lattice outward from the *open* cross-section (X pitch = open flat-to-flat `+2*lw` for the doubled verticals, vertex `+lw/sqrt(3)` and row pitch `+lw/sqrt(3)` for the single slants) so that the *open* injectable cross-section is a regular hexagon of the requested interior width despite the asymmetric deposited wall thickness, with U-tube pairing and shared-wall windows as in the other Magma patterns.
 
 ---
 
@@ -591,7 +790,9 @@ for (const TriangleCell &cell : candidates) {
 
 Salvage tubes are marked with `is_salvaged = true` to distinguish them from default deterministic pairs. Cells with no viable partner are marked as solid fill (empty pair index vector).
 
-### 4.f Per-Layer Tube Volume Computation
+### 4.f Per-Layer Tube Volume Computation (closed-form estimate, superseded by measured volumes)
+
+**Historical note:** the closed-form per-layer volume estimate below -- accumulate ideal/clipped cell areas, add a geometric window-gap term, subtract a per-pattern vertex-overlap term -- has been **superseded by a direct measurement of the cavity from the deposited toolpath** (Section 4.g), which captures the side-by-side doubled walls, the window gap, and part-edge clipping in one operation from the real footprint. The closed-form estimate is retained here for prior art; the overlap-excess reasoning it introduced lives on as the one residual that the footprint measurement cannot see -- now applied as a single self-scaling, flow-correction-aware subtraction sized to the actual deposited line width (Section 4.h), rather than the conditional term used here.
 
 Tube volume is computed by accumulating per-layer cell areas (in scaled squared units) multiplied by per-layer heights, then adding window gap volume and subtracting triangle vertex overlap excess:
 
@@ -627,6 +828,119 @@ for (UTubePair &pair : m_pairs) {
 ```
 
 The window gap volume uses the inset side length (not the full edge) since interiors are smaller than the outer triangle. Window layer membership is checked via mm-based Z comparison (`bottom_z() < pair.window_end_z`) rather than layer counts, ensuring correct behavior with variable layer heights. The overlap excess subtraction accounts for triangle vertex overlap regions where 3 line families cross at 60 degrees, depositing material twice -- this excess physically occupies tube interior space, so injection volume is reduced accordingly.
+
+### 4.g Measured Injection Volume from the Deposited Toolpath
+
+Rather than estimating each U-tube's injectable cavity from closed-form cell geometry (Section 4.f), the shipping system **measures** that cavity from the actually generated infill. `measure_volumes()` runs *after* `PrintObject::infill()`, when each layer region's `fills` hold the real extrusion paths. For each layer of a pair's run, the injectable void at that layer is the union of the pair's cell polygons (`cell_a`, `cell_b`, and any extra tri-hex vent legs) intersected with the reinforcement zone, *minus* the footprint of the deposited Magma walls (the polygons the extrusion physically covers, from `polygons_covered_by_width`). Summed over the run times each layer's height, this is the dosed injection volume:
+
+```cpp
+// src/libslic3r/Magma/MagmaTubeMap.cpp — measure_volumes()
+//
+// For each pair, the injected cavity at a layer is  (cell_a u cell_b u vents) n zone  minus
+// the deposited magma walls. Summed over the run x layer height, that single measurement nets
+// out the side-by-side doubled walls, the window gap, and part-edge clipping from the real
+// footprint; the residual over-extrusion where lines cross is corrected separately (see 4.h).
+// Runs after PrintObject::infill(), when fills hold the real paths.
+
+// Per-layer cache (shared by all pairs on a layer): the magma zone + deposited walls.
+for (int lid : used) {
+    const Layer *layer = /* layer with id lid */;
+    ExPolygons zone; Polygons walls;
+    for (const LayerRegion *lr : layer->regions()) {
+        const PrintRegionConfig &rc = lr->region().config();
+        if (!(rc.dual_infill_enabled || is_magma_pattern(rc.sparse_infill_pattern.value)))
+            continue;
+        for (const Surface &s : lr->fill_surfaces.surfaces)
+            if (s.surface_type == stInternal) zone.push_back(s.expolygon);
+        append(walls, lr->fills.polygons_covered_by_width(0.f));   // actual deposited footprint
+    }
+    zone_by_layer[lid]  = union_ex(zone);
+    walls_by_layer[lid] = union_ex(walls);
+}
+
+// ... then per pair, per layer:
+ExPolygons combined = intersection_ex(union_ex(cells), zone_by_layer[lid]);
+const ExPolygons &walls = walls_by_layer[lid];
+ExPolygons cavity = walls.empty() ? combined : diff_ex(combined, walls);   // void = cells n zone − walls
+double a2 = 0.0;
+for (const ExPolygon &ep : cavity) a2 += std::abs(ep.area());
+vol += unscale<double>(unscale<double>(a2)) * h_by_layer[lid];
+```
+
+Because the measurement uses the *real* deposited footprint, the same single operation accounts for effects that the closed-form estimate had to model with separate per-pattern terms: vertical walls that the toolpath draws doubled *side by side* (Section 3.h, which the footprint sees as a wider solid wall), the window gap (its missing wall simply leaves more void), and clipping of cells at the part edge. The one effect the footprint cannot see -- the extra plastic where lines CROSS and *stack*, which `polygons_covered_by_width` merges into a single union so the second bead's bulge into the void is never recorded -- is removed by the companion self-scaling correction of Section 4.h. The per-layer zone and wall polygons are cached once per layer and reused across every pair touching that layer. The result is stored as `pair.volume_mm3`, and only pairs with positive measured volume contribute an injection cap layer.
+
+**Prior-art scope.** This disclosure establishes prior art for determining the injected-material dose for an in-situ printed channel by **measuring** its per-layer cavity from the generated toolpath -- (cell polygons intersected with the infill zone) minus the polygons covered by the deposited extrusion width, summed over the channel's layer range times layer height -- rather than from a closed-form cross-section, so that a single geometric difference captures side-by-side doubled walls, the window gap, and part-edge clipping with no pattern-specific correction terms (the residual stacking over-extrusion where lines cross being removed by the companion self-scaling correction of Section 4.h).
+
+### 4.h Flow-Correction-Aware Overlap Compensation (single self-scaling correction)
+
+> **Implementation status.** The `magma_overlap_line_correction` / `magma_overlap_min_width`
+> print-quality lever described in this section has since been **removed from the shipping
+> slicer** — it was off by default, it was not useful enough to justify itself, and it was the
+> only reason the tube map carried two different line widths, which in practice produced several
+> code paths that disagreed about which width to use. Lines now always print at full nominal
+> width and the full crossing overlap is always subtracted; anyone wanting thinner beads can set
+> a lower sparse infill line width directly. The implementation remains in the project's git
+> history, and the disclosure below is retained in full as prior art — the mechanism was built
+> and published, and its removal is a product decision, not an abandonment of the idea.
+
+Where infill line families cross, the toolpath deposits material twice, over-extruding at each junction, and the second bead's bulge squeezes into the cavity. Because the deposited-wall footprint of Section 4.g (`polygons_covered_by_width`) merges the two crossing beads into a single union, that bulge is never recorded by the measurement, so the injection volume is **always** corrected for it. The correction is a **single self-scaling subtraction**, sized to the *actual deposited* line width -- not two mutually-exclusive levers, and not gated on any setting.
+
+The `magma_overlap_line_correction` setting (default off) does **not** decide whether the volume is corrected; it only changes how the lines are PRINTED, and therefore what the deposited width is:
+
+- **Setting OFF (default).** The infill lines print at full nominal width `w`. The effective width is `w_eff = w`, and the FULL per-cell crossing overlap is subtracted from the measured cavity.
+- **Setting ON.** Infill flow at the Magma pattern is reduced so the deposited lines print thinner, avoiding over-extruded crossings *on the part itself* (a print-quality benefit, and avoidance of sub-nozzle-width artifacts). The reduction is floored at a minimum bead width (`magma_overlap_min_width`, default ~90% of nozzle diameter), so the lines do not vanish and the crossings still over-extrude a little. The effective width becomes `w_eff = w_corrected`, and only the small RESIDUAL crossing overlap of the thinned lines is subtracted.
+
+The deposited (effective) width is resolved once, in `build()`; the volume subtraction (below) then always evaluates the per-vertex excess at that width:
+
+```cpp
+// src/libslic3r/Magma/MagmaTubeMap.cpp — build()
+// Two correction levers:
+//   1. Line width: reduce infill flow so deposited width shrinks from w to w_eff.
+//   2. Injection volume: subtract per-layer excess from tube fill volume.
+//      ALWAYS applied, regardless of the line-width correction setting.
+map->m_effective_line_width = map->m_line_width;                        // w  (setting off)
+double excess_frac = m_geometry->line_overlap_excess_fraction(S, w);    // doubled fraction
+if (m_overlap_line_correction && excess_frac > 0.0) {
+    double w_corrected = std::max(min_width, w * (1.0 - excess_frac));  // floored ~90% nozzle
+    map->m_overlap_flow_correction = w_corrected / w;                   // applied to infill flow
+    map->m_effective_line_width    = w_corrected;                       // w_eff (setting on)
+}
+```
+
+The per-vertex excess area is a shape constant supplied by the geometry strategy, evaluated at the deposited width `lw_eff = m_effective_line_width` and apportioned per cell:
+
+| Pattern | Per-vertex excess area (at deposited width `lw_eff`) | Apportionment |
+|---|---|---|
+| Triangle | `(3*sqrt(3)/4) * lw_eff^2` | per cell (2 cells/pair) |
+| Rectilinear (square) | `lw_eff^2` | per cell (2 cells/pair) |
+| Tri-hex | `(2/sqrt(3)) * lw_eff^2` | charged to incident cells by corner count: hub 6, vent 3, divided by 4 |
+| Honeycomb | `0` (degree-3 junctions are line ends, not crossings) | n/a |
+
+```cpp
+// src/libslic3r/Magma/MagmaTubeMap.cpp — measure_volumes()
+// The injection volume is ALWAYS corrected for vertex overlap, evaluated at the ACTUAL
+// deposited width m_effective_line_width: residual when the flow correction is on (thinned
+// lines), full when off. It is NOT double-counting the footprint — polygons_covered_by_width
+// merges crossing lines into a single union, so the second line's deposit (which bulges into
+// the void) is never captured there and must be subtracted here.
+const double excess_unit = m_geometry->vertex_overlap_excess_area(m_effective_line_width);
+
+// per pair: apportion the excess per cell ...
+if (m_pattern == ipMagmaTriHex) {
+    auto charge = [&](const TriangleCell &c) {
+        return 0.25 * ((c.kind == THK_HEX) ? 6.0 : 3.0) * excess_unit;   // corner count / 4
+    };
+    excess_rate = charge(pair.cell_a) + charge(pair.cell_b);
+    for (const TriangleCell &ev : pair.extra_vents) excess_rate += charge(ev);
+} else {
+    excess_rate = excess_unit * double(2 + int(pair.extra_vents.size()));
+}
+// ... per layer:  vol -= excess_rate * h_by_layer[lid];   (always; zero for honeycomb)
+```
+
+Because the subtraction is sized to whatever width was actually deposited, it is one self-scaling term: it shrinks to a residual when the lines were thinned and grows to the full overlap when they were not -- corrected once in both cases, never double-counted. The novelty is precisely this: the overlap is corrected exactly once, sized to what was actually deposited, *regardless* of the flow-correction setting; the flow correction is a print-quality lever that shifts where the line-width reduction happens, not whether the volume is corrected. (Honeycomb's vertex excess is zero, so it is unaffected -- its doubled *vertical walls* run side by side, not stacked, so the footprint already captures them; only stacking line crossings need this term.)
+
+**Prior-art scope.** This disclosure establishes prior art for correcting the over-extrusion at infill line crossings with a **single, always-applied, self-scaling** subtraction from a toolpath-measured cavity (Section 4.g), sized to the actual deposited line width -- so the correction is a residual when an optional flow-reduction print-quality lever has thinned the lines and the full overlap when it has not -- such that the crossing overlap is corrected exactly once and never double-counted regardless of the flow-correction setting, with the per-cell overlap area a shape-specific constant apportioned by incident-cell corner count (zero for the honeycomb pattern, whose junctions are line ends rather than crossings).
 
 ---
 
@@ -776,15 +1090,15 @@ The warm start gives CP-SAT a complete initial solution, dramatically reducing s
 
 The model is spatially partitioned into independent blocks for bounded computation:
 
-- **XY partitioning:** R=6 cells per block side. 2 XY passes with R/2 offset (50% overlap). Every edge is interior to at least one block.
+- **XY partitioning:** R=16 cells per block side, a single XY pass per Z level. Adjacent blocks overlap by R_OVERLAP=2 cells (stride = R − R_OVERLAP), so every edge is interior to at least one block.
 - **Z partitioning:** Window = 4 × max_h_layers, stride = 2 × max_h_layers (50% overlap). Every tube is fully visible in at least one Z window.
 - **Z range trimming:** Loop terminates at the maximum layer with any edge activity, not the model's total layer count (skips empty upper Z levels).
 - **Edge collection:** Uses cell reverse lookup (`m_cell_edges`) instead of scanning all edges — O(block cells × edges per cell) instead of O(total edges).
 
 ### 5.g Parallelism and Cancellation
 
-- **TBB across blocks:** Independent blocks within each pass are solved in parallel using `tbb::parallel_for`.
-- **CP-SAT workers per block:** 8 internal search workers.
+- **Block scheduling:** Blocks are solved sequentially (not in parallel across blocks).
+- **CP-SAT workers per block:** all available cores (`tbb::this_task_arena::max_concurrency()`) — the parallelism lives *inside* each block's CP-SAT solve rather than across blocks.
 - **Cancellation:** Checked between passes via `throw_if_canceled()` (OrcaSlicer's standard pattern). Current blocks finish their timeout before cancellation takes effect.
 - **Progress:** Reports "Magma: refining tubes X/Y" via OrcaSlicer's status callback.
 
@@ -815,7 +1129,7 @@ The greedy stage alone provides excellent coverage for quick iteration. CP-SAT r
 
 **Implementation status: IMPLEMENTED and tested in software.**
 
-### 5.a Auto Window Height from Cross-Section Geometry
+### 6.a Auto Window Height from Cross-Section Geometry
 
 Window height is automatically calculated in mm to match the tube cross-section area to the window opening area, ensuring adequate flow between paired cells:
 
@@ -830,15 +1144,15 @@ static double calculate_auto_window_height_mm(double interior_width, double line
     double inset_side = side - line_width * SQRT3;
     if (inset_side <= 0)
         return 0.1;
-    // 20% safety margin: window opening should exceed tube cross-section
-    double window_height_mm = 1.2 * tube_area / inset_side;
+    // Geometric height: window cross-section equals tube interior (caller adds 1 layer)
+    double window_height_mm = tube_area / inset_side;
     return std::max(0.1, window_height_mm);
 }
 ```
 
-The formula `1.2 * tube_area / inset_side` derives from equating the tube interior cross-section area (the inset triangle area after accounting for line width eating into the interior) with the window opening area (`inset_side * window_height`), where `inset_side = side - line_width * sqrt(3)` is the gap length between two adjacent inset triangle interiors along the shared edge. The 1.2x multiplier provides a 20% safety margin so the window opening exceeds the tube cross-section for free flow. The result is in mm (not layers), supporting variable layer heights directly.
+The formula `tube_area / inset_side` derives from equating the tube interior cross-section area (the inset triangle area after accounting for line width eating into the interior) with the window opening area (`inset_side * window_height`), where `inset_side = side - line_width * sqrt(3)` is the gap length between two adjacent inset triangle interiors along the shared edge. The caller (`from_config`) then adds one layer height to this geometric value so the window reliably spans a full printed layer despite layer-registration accuracy. The result is in mm (not layers), supporting variable layer heights directly.
 
-### 5.b Window Gap Interval Merging
+### 6.b Window Gap Interval Merging
 
 Window gaps are organized by line family (horizontal, 60-degree, 120-degree). Each line family uses a map from line index to sorted, merged intervals of world-coordinate ranges where lines should be interrupted:
 
@@ -869,7 +1183,7 @@ for (auto &[key, intervals] : result.diag120)
 
 The merge function combines overlapping or adjacent intervals (within 0.01mm tolerance) into a single interval, preventing double-gap artifacts when multiple tube pairs share the same line segment.
 
-### 5.c Line Generation with Built-In Gaps
+### 6.c Line Generation with Built-In Gaps
 
 Window gaps are subtracted during line generation, not clipped after the fact. This is more efficient than generating full lines and then clipping, and avoids numerical issues with post-hoc line splitting:
 
@@ -916,7 +1230,7 @@ static void subtract_gaps(double lo, double hi,
 }
 ```
 
-### 5.d Parametric Y-Gap Splitting for Diagonal Lines
+### 6.d Parametric Y-Gap Splitting for Diagonal Lines
 
 For 60-degree and 120-degree lines, window gaps are specified as Y-coordinate intervals. Since these lines are not horizontal, the Y intervals must be converted to parametric positions along the line segment:
 
@@ -960,7 +1274,7 @@ static void split_line_by_y_gaps(
 
 The parametric conversion correctly handles both upward-sloping (60-degree) and downward-sloping (120-degree) lines by sorting t-values after conversion.
 
-### 5.e Structural Minimum Validation
+### 6.e Structural Minimum Validation
 
 Tube height is clamped to a structural minimum ensuring sufficient solid wall material above and below each window. The minimum is now mm-based:
 
@@ -979,29 +1293,29 @@ The formula ensures: one window height of solid wall below the window, one windo
 
 **Implementation status: IMPLEMENTED and tested in software. The injection system generates working G-code; multi-material filament switching is fully wired but not yet tested on multi-material hardware.**
 
-### 6.a Per-Layer Injection as Print Stage
+### 7.a Per-Layer Injection as Print Stage
 
 Injection occurs as a dedicated print stage within each layer's processing, not as a post-print operation. The injection sequence for each layer:
 
 1. Switch to injection filament if configured (using OrcaSlicer's existing tool change infrastructure)
 2. Heat nozzle to injection temperature (with optional nozzle parking during heat-up)
-3. For each injection point (TSP-ordered for minimal travel):
-   a. Travel to injection cell center
+3. For each injection point (in the layer's chosen order -- travel-optimal or heat-spread, see Section 7.h):
+   a. Travel to injection cell center (built-in travel: retract/lift/avoid-crossing)
    b. Unretract
-   c. Z-slam seal (lower nozzle 0.1mm into surface)
+   c. Z-slam seal (lower nozzle to the seal depth, Section 7.c)
    d. Emit role and dimension tags for preview
    e. Emit tube visualization metadata
-   f. Extrude calculated volume as segmented G1 commands
+   f. Extrude calculated volume as segmented G1 commands, ramping the nozzle
+      deeper between segments if plunge is enabled (Section 7.c)
    g. Dwell for air displacement
-   h. Z-slam release (return to layer height)
-   i. Retract
-4. Optional ironing pass over filled tube ends
-5. Cool nozzle back to printing temperature
-6. Switch back to original print filament if needed
+   h. Break-lift to crack the seal, then retract
+   i. Crater ironing: spiral inward to plow the rim back and clean the nozzle (Section 7.d)
+4. Cool nozzle back to printing temperature
+5. Switch back to original print filament if needed
 
-### 6.b Injection Speed and Volume
+### 7.b Injection Speed and Volume
 
-Injection volumetric speed is user-configured via `magma_injection_speed` (default 8 mm^3/s), capped at `filament_max_volumetric_speed`. Tube height is user-specified via `magma_tube_height` (default 10mm).
+Injection volumetric speed is user-configured via `magma_injection_speed` (default 10 mm^3/s), capped at `filament_max_volumetric_speed`. Tube height is user-specified via `magma_tube_height` (default 4.5mm).
 
 ```cpp
 // src/libslic3r/Magma/MagmaInjection.cpp
@@ -1012,68 +1326,100 @@ if (max_vol > 0)
     vol_speed = std::min(vol_speed, max_vol);
 ```
 
-A coupled thermal-pressure model for automatic depth/speed calculation was designed, implemented, and tested but removed from the current release (see Section 9.e).
+A coupled thermal-pressure model for automatic depth/speed calculation was designed, implemented, and tested but removed from the current release (see Section 10.e).
 
-### 6.c Z-Slam Sealing
+### 7.c Z-Slam Sealing
 
-During stationary injection, the nozzle lowers into the surface to create a mechanical seal against the tube opening. This prevents plastic from escaping laterally during injection. The depth is configurable via `magma_injection_z_slam` (default 0.05mm), capped at 2.0mm with a UI warning for large values. Set to 0 to disable.
+During stationary injection, the nozzle lowers into the surface to create a mechanical seal against the tube opening. This prevents plastic from escaping laterally during injection. The depth is configurable via `magma_injection_z_slam` (default 0.05mm), clamped to 3.5mm with a UI warning for large values. Set to 0 to disable.
 
 ```cpp
-// src/libslic3r/Magma/MagmaInjection.cpp
+// src/libslic3r/Magma/MagmaInjection.cpp (simplified)
 
-double slam_depth = std::min(config.magma_injection_z_slam.value, 2.0);
+double slam_depth = std::min(config.magma_injection_z_slam.value, 3.5);
 
-// Lower nozzle into surface
+// Lower the nozzle into the surface to seal against the opening
 if (slam_depth > 0) {
-    sprintf(buf, "G1 Z%.3f F600 ; z-slam seal\n", layer_z - slam_depth);
+    sprintf(buf, "G1 Z%.3f F%d ; z-slam seal\n", layer_z - slam_depth, z_feedrate);
     gcode += buf;
 }
 
-// ... injection extrusion ...
+// ... injection extrusion (optionally with progressive plunge) ...
 
-// Return to normal layer height
-if (slam_depth > 0) {
-    sprintf(buf, "G1 Z%.3f F600 ; z-slam release\n", layer_z);
-    gcode += buf;
-}
+// Finish: crack the seal *before* retracting, so retraction can't pull the
+// freshly injected plug back up through the still-sealed interface. A small
+// fixed break-lift relieves the contact pressure regardless of plunge depth;
+// the crater-iron wipe (Section 7.d) then returns the nozzle to layer height.
+sprintf(buf, "G1 Z%.3f F%d ; injection break-lift\n",
+        layer_z - slam_depth - plunge_depth + 0.3, z_feedrate);
+gcode += buf;
+if (inj_retract)
+    gcode += gcodegen.writer().retract();
 ```
 
-Small values (0.05mm) work with nozzles that have a wide flat tip. Nozzles with a narrow flat and tapered tip may need deeper values (0.5-1.0mm) so the taper widens enough to seal the tube opening. The F600 feedrate (10mm/s) prevents sudden impacts.
+Small values (0.05mm) work with nozzles that have a wide flat tip. Nozzles with a narrow flat and tapered tip may need deeper values (0.5-1.0mm) so the taper widens enough to seal the tube opening. The slam/lift moves use the printer's Z travel speed (`travel_speed_z`, firmware-capped) rather than a hardcoded feedrate, so the nozzle does not linger on the hot tube top.
 
-### 6.d Tube-End Ironing
+**Seal depth from nozzle cone geometry, and the immersion budget that governs it.** A standard nozzle tip is a flat ring of diameter `flat` (the measured `magma_nozzle_outer_diameter`, "Nozzle tip flat") with a cone of half-angle `theta` (`magma_nozzle_cone_half_angle`, default 30 degrees) widening above it. To seal a tube opening of diameter `opening`, the nozzle must descend until the cone has widened from `flat` to `opening` plus a small seal margin (`MAGMA_SEAL_MARGIN`, 0.1mm, so the cone clears the opening rather than just grazing it). Each unit of descent widens the cone by `2 * tan(theta)`, giving `seal_depth = (opening + margin - flat) / (2 * tan(theta))`, floored at zero when the flat already covers the opening. There is no user-facing manual depth: the slicer derives it per tube from that tube's own clipped opening, so a tube whose top was clipped narrow gets the deeper press it needs.
 
-After injection, an optional ironing pass flattens the tube ends using serpentine parallel lines within the cell boundary:
+The non-obvious part is what that depth costs. It is natural to assume the deformation around an injection scales with how hard the nozzle is pressed in, and therefore that the depth is the thing to limit. It is not. Because the solve targets `opening + margin`, the *mechanical interference* past first contact with the tube rim is always `margin / (2 * tan(theta))` — the opening and the flat cancel out of the expression entirely, leaving a constant 0.0866mm at 30 degrees that is **identical for every tube size and every nozzle**. A wider tube does not press harder; it only moves the point at which contact begins further down.
+
+What actually varies between a clean injection and a deformed one is how far the hot nozzle travels *inside* the tube before it seals. Two test prints differing only in that quantity (0.54mm and 1.08mm) had byte-identical interference and visibly different top surfaces. The disclosed system therefore exposes the **immersion** as the user-facing budget (`magma_max_immersion`, default 0.6mm) rather than exposing the depth, and consumes that budget in two directions:
+
+- **Auto tube width** *inverts* the budget: `max_opening_for_immersion(flat, theta, budget) = flat + 2 * budget * tan(theta) - margin` gives the largest opening sealable within the budget, and the pattern's own geometry strategy (`MagmaGeometry::interior_for_opening`) converts that opening into the interior width for that cell shape. The tube is thus made as large as the user's tolerance for deformation permits, with no arithmetic by the user, and the depth cap never binds.
+- **Manual tube width** runs it forwards: the required depth is computed and clamped to the budget, and slicing-time validation reports the shortfall — the nozzle is never allowed to drive arbitrarily deep to chase a seal the user's own budget forbids.
 
 ```cpp
-// src/libslic3r/Magma/MagmaInjection.cpp
-
-// Iron each injection hole with serpentine parallel lines
-for (const auto& pt : points) {
-    double radius = tube_map.interior_width() / 2.0 - nozzle_d / 2.0;
-    if (radius <= 0.05)
-        continue;
-
-    bool left_to_right = true;
-    for (double dy = -radius; dy <= radius + 0.001; dy += ir_spacing) {
-        double r2 = radius * radius - dy * dy;
-        if (r2 <= 0)
-            continue;
-        double half_chord = std::sqrt(r2);
-
-        double x0 = pt.position.x() + (left_to_right ? -half_chord : half_chord);
-        double x1 = pt.position.x() + (left_to_right ? half_chord : -half_chord);
-        double y  = pt.position.y() + dy;
-
-        // Travel to line start, unretract, extrude ironing line
-        // ... serpentine direction alternation ...
-        left_to_right = !left_to_right;
-    }
+// src/libslic3r/Magma/MagmaTriangleCell.hpp  (shape-agnostic seal math)
+inline double auto_slam_depth(double opening_dia, double flat, double cone_half_angle_deg,
+                              double max_immersion, double press) {
+    press = std::max(0.0, press);
+    double needed = seal_depth_for_opening(opening_dia + MAGMA_SEAL_MARGIN, flat, cone_half_angle_deg);
+    double budget = std::max(press, std::max(0.0, max_immersion));
+    return std::min(std::min(std::max(press, needed), budget), MAGMA_SLAM_CLAMP);
 }
 ```
 
-The ironing inscribes circular passes within the tube cross-section, using a radius reduced by half the nozzle diameter to avoid overhanging the tube walls. Ironing parameters (flow, spacing, speed) inherit from the user's ironing configuration if enabled, or use sensible defaults (10% flow, 0.1mm spacing, 15mm/s).
+When the flat already covers the opening outright, no descent is geometrically required and `needed` is zero; the nozzle still presses down by `press` (`magma_auto_slam_press`, default 0.1mm) so ordinary part-to-part variation cannot leave the seal open. The nozzle tip flat has no default and no fallback: it is a physical property of the user's hardware that cannot be guessed from the nozzle's *bore* diameter, so slicing fails with measurement instructions until it is provided.
 
-### 6.e Multi-Material Injection Filament Switching
+**Prior-art scope.** This disclosure establishes prior art for governing an in-situ sealing plunge by a **nozzle-immersion budget** rather than a plunge depth — including the observation that, when the seal solve targets the opening plus a fixed margin, the mechanical interference past rim contact is invariant to both opening and tip flat, so depth is the wrong quantity to bound — and for **inverting** that budget to size the printed channel itself, so the channel is made the largest one sealable within the user's deformation tolerance.
+
+**Progressive plunge ("slam-melt").** A single fixed seal depth can fail mid-injection: as channel pressure rises, plastic finds the lateral gap at the seal and mushrooms out around the nozzle instead of flowing down the tube. The plunge ramps the nozzle deeper *while injecting* — the extrusion is split into segments and the Z is stepped down between them from `slam_depth` to `slam_depth + plunge_depth` over the course of the injection, so the hot tip keeps sinking into the softening tube top and holds the seal shut as it fills:
+
+```cpp
+// src/libslic3r/Magma/MagmaInjection.cpp -- per extrusion segment k of K
+double z = layer_z - (slam_depth + plunge_depth * (k + 1) / K);
+// emit: G1 Z<z>           (sink the nozzle)
+//       G1 F<inj_feed>    (re-assert injection feedrate; the Z move's feedrate
+//                          must not leak into the stationary extrude)
+//       G1 X.. Y.. E<seg> (extrude this segment at the injection rate)
+```
+
+The volumetric injection rate is held constant across the plunge (re-asserted after each Z move, since a raw Z move's feedrate is otherwise sticky). The total depth is clamped so `slam + plunge` stays within a safe intrusion.
+
+### 7.d Crater Ironing
+
+Pressing a round/conical nozzle into a triangular tube opening necessarily displaces material into a raised rim around a central crater (the seal/plunge intrusion), and coats the nozzle in plastic that would otherwise string to the next injection. Crater ironing is a finishing move after each injection that redistributes the rim back into the crater and cleans the nozzle in one motion.
+
+The sequence: (1) a small fixed **break-lift** cracks the seal *before* retracting (so retraction can't pull the plug back up through the still-sealed interface); (2) retract; (3) an **inward spiral** over the injection centre.
+
+The key mechanism is using the **nozzle cone as a plow**: with the flat hovering just above layer height and the nozzle positioned outside the rim, the cone's flank — whose outward normal points `(cos theta, -sin theta)` = inward and *downward* — deflects rim material toward the centre and down into the crater as the nozzle spirals in. A flat vertical edge would only push laterally; the cone's angle is what fills the depression.
+
+```
+crater_r = r_flat + (slam + plunge) * tan(theta)          # intrusion footprint radius
+start_R  = crater_r + margin                              # begin spiral outside the rim
+# Neighbour protection: only PRESS (descend to layer height) inside the radius
+# where the flat's outer edge stays >= 0.5 mm short of a neighbour opening's far
+# vertex, so a sliver of every neighbour air hole stays open:
+D    = neighbour-centroid distance  (= cell_side / sqrt(3) for the triangle grid)
+Ropen= neighbour opening vertex radius (inset triangle -- excludes cell walls)
+cap  = (D + Ropen) - 0.5 - r_flat
+# spiral radius r: shrink start_R -> 0 over `turns` revolutions
+#   r > cap  -> hover at layer_top + hover      (never irons a neighbour shut)
+#   r <= cap -> descend hover -> layer_top      (press/iron our own crater)
+```
+
+A short stroke across the centre flattens the gathered mound (only where `cap > 0`, i.e. the cell has room). The whole pass is non-extruding; the retraction performed at the break-lift keeps it from oozing. Inter-injection travel afterwards uses the slicer's normal travel path (retraction, z-hop, avoid-crossing). Tunable: turns (cut depth), speed, hover height, and start margin; start radius, neighbour clearance, and the descent profile are derived from the cell and nozzle geometry.
+
+### 7.e Multi-Material Injection Filament Switching
 
 The system supports a dedicated injection filament via `magma_injection_filament`, following OrcaSlicer's existing `support_filament` pattern. This enables using a different material for injection (e.g., a higher-temperature material for stronger reinforcement).
 
@@ -1097,7 +1443,7 @@ if (object.config().magma_injection_filament.value > 0) {
 
 The configuration parameter uses 1-based indexing (0 = current filament, 1 = filament 1, etc.) matching the `support_filament` convention. The implementation is fully wired through config definitions (`PrintConfig.hpp`), UI (`Tab.cpp`, `ConfigManipulation.cpp`), preset serialization (`Preset.cpp`), and extruder collection (`Print.cpp`). Multi-material hardware testing has not been performed at time of publication, but code review confirms correct integration with the tool change system.
 
-### 6.f Segmented Injection Extrusion
+### 7.f Segmented Injection Extrusion
 
 Injection volume is split into per-waypoint G1 E commands proportional to the 3D path segment length. This enables the preview slider to show progressive tube filling:
 
@@ -1124,24 +1470,79 @@ if (waypoints.size() >= 2) {
 
 Each G1 command receives a proportional share of the total extrusion amount, weighted by the 3D distance between consecutive waypoints along the U-tube path. This produces multiple G-code lines for a single stationary injection, each with its own slider position in the preview, enabling visual progressive fill animation.
 
-### 6.g Auto-Sizing
+### 7.g Auto-Sizing
 
-Interior width and window height are automatically calculated from the nozzle geometry:
+Interior width and window height are derived rather than dialled in.
+
+The interior width comes from the immersion budget, not from the nozzle bore. The largest
+sealable opening is `flat + 2 * max_immersion * tan(theta) - margin` (Section 7.c above), and
+each pattern converts that opening into an interior width through its own inverse of
+`opening_diameter()`, reached polymorphically so no call site carries a shape-specific
+formula:
 
 ```cpp
-// src/libslic3r/Magma/MagmaTriangleCell.cpp
-
-double calculate_auto_interior_width(double nozzle_diameter)
-{
-    // Fallback when nozzle outer diameter is not specified.
-    // Uses 3.0x bore as a conservative default.
-    return nozzle_diameter * 3.0;
-}
+// src/libslic3r/Magma/MagmaGeometry.hpp
+// Inverse of opening_diameter(): the interior width whose seal opening is exactly
+// `opening`. Auto tube sizing feeds this the largest opening the injection immersion
+// budget allows, so the tube comes out as big as the deformation budget permits.
+virtual double interior_for_opening(double opening, double line_width) const = 0;
 ```
 
-When the nozzle outer diameter is known, `calculate_auto_interior_width_from_od()` computes the largest inset triangle that fits within the nozzle shoulder circle with a 0.2mm safety buffer. It uses circumscribed circle geometry: for an equilateral triangle with side `s`, the circumscribed diameter is `2s / sqrt(3)`. Setting this equal to `nozzle_od - 0.2` and solving for the interior width ensures all three vertices of the tube opening are covered by the nozzle flat during z-slam injection.
+There is deliberately **no fallback** for an unmeasured nozzle tip flat. An earlier revision
+defaulted it to three times the bore diameter; this is disclosed here because it is a
+plausible design and is being dedicated to the public domain, but it was removed as unsound.
+The flat is a physical property of a specific nozzle that does not track its bore — two 0.6mm
+nozzles can have visibly different flats — so a guessed value silently mis-sizes every tube in
+the print. Slicing instead fails with an error naming the setting and describing how to measure
+it, on the reasoning that a loud stop is cheaper than a part-sized batch of unsealed tubes.
 
-Window height is auto-calculated from `1.2 * tube_area / inset_side` where `inset_side = side - line_width * sqrt(3)`. This equates the window opening cross-section to the tube interior cross-section with a 20% safety margin for free flow between tube halves. The minimum window height is 0.1mm.
+Window height is auto-calculated from `tube_area / inset_side` (plus one layer height). This
+equates the window opening cross-section to the tube interior cross-section, then adds one
+layer height so the window reliably spans a full printed layer. The minimum window height is
+0.1mm.
+
+### 7.h Heat-Spread Injection Ordering
+
+When two spatially-adjacent tubes are injected back-to-back, their combined heat can re-melt the thin wall between them and break the seal. The order in which injections are visited on a layer is selectable via `magma_injection_ordering`:
+
+- **Minimize travel** -- the shortest nozzle path, computed by the existing KD-tree nearest-neighbour tour (`chain_points()`). This is the default.
+- **Spread heat** -- a thermal-aware order that deliberately separates spatially-near injections in time.
+
+The ordering is computed **globally per print layer**: all injection points from every object and every instance that fall on the same layer Z are collected and ordered together. A per-object order would be defeated on a plate of small parts, where each part's tubes would still be injected as a tight cluster. Because injection happens as the last operation on a layer, the global set is well-defined at that point.
+
+The order is solved once, ahead of G-code generation, in a dedicated slicing stage (`psMagmaInjectionOrder`) and cached by layer Z (the same merged-`print_z` bucketing OrcaSlicer uses for its per-layer tool ordering), so G-code export performs a lookup rather than a solve.
+
+**Decay model.** The objective is to keep spatially-near injections far apart in *real time*. Each prior injection is treated as a heat source that fades with both elapsed time and distance, so the residual heat a candidate point sees is
+
+```
+heat(candidate) = sum over already-injected i of
+                    exp(-dt_i / tau) * exp(-dist(candidate, i) / lambda)
+```
+
+where `dt_i` is the real elapsed injection time since `i` was injected, `lambda` ~ the median nearest-neighbour spacing (heat couples only to the immediate ring), and `tau` is derived from the layer's own pace (`tau = SEP_TARGET * median per-injection step time`, `SEP_TARGET ~ 8`) so the time scale self-adjusts. `dt` comes from a real injection-phase timing model -- travel distance / travel speed, plus per-injection extrude time (volume / volumetric rate), z-hops, and dwell -- so a longer hop to a distant cell *is* extra cooling, coupling travel and thermal separation instead of opposing them.
+
+**Stage 1 -- time-decay dispersion greedy.** Maintain the residual-heat field over the not-yet-injected points. Starting from the travel-optimal tour's first point, repeatedly:
+- pick the remaining point with the lowest heat *on arrival* -- `heat(c) * exp(-travel_time(cur,c)/tau)` plus a small travel tiebreak `beta * travel_time(cur,c)` so the nozzle prefers nearer cool spots;
+- advance the clock by that step's real time and decay the whole field by `exp(-step_time/tau)`;
+- deposit the new injection's spatial heat onto its neighbours.
+
+This naturally round-robins across spatial clusters (e.g. instances on a multi-part plate) and stripes across a single dense lattice, while keeping travel bounded.
+
+**Stage 2 -- violation-directed local-search polish.** Hill-climb on a rank-gap proxy of the objective: immediate-ring pairs visited fewer than `WINDOW = min(n, 8)` injections apart are "crowded". For each currently-crowded near pair, try swaps that increase its time separation; each swap's delta touches only the two moved points' neighbours, so it is O(degree). This dissolves residual clusters the greedy left behind -- including end-of-pass "painted-into-a-corner" leftovers -- converging to a local optimum.
+
+The whole pipeline is deterministic and runs in O(n^2) (sub-millisecond per layer for typical counts) with no external solver dependency. Very large layers (above a few thousand simultaneous injections) fall back to travel-optimal order.
+
+**Alternative formulation (implemented, measured, removed -- see git history).** The same objective was first expressed and solved *exactly* as a Hamiltonian-circuit (travelling-salesman) routing problem with an added time-gap heat penalty:
+
+```
+arc[i][j] in {0,1}  -- tour edge;   rank[i] in [0,n) -- visiting position (MTZ)
+minimize  sum dist(i,j)*arc[i][j]                                   (travel)
+        + sum over near pairs of  median_nn * w * max(0, WINDOW - |rank[i]-rank[j]|)   (heat)
+```
+
+solved with CP-SAT (OR-Tools), warm-started from the travel-optimal tour (so it is never worse than travel order), over a sparse arc set (each node's k-nearest neighbours plus the warm-start tour's edges, guaranteeing a feasible circuit exists), with a distance-tiered penalty (immediately-adjacent pairs weighted 2x) and a short per-layer time budget. This was benchmarked against the greedy+polish pipeline on the real decay objective: warm-started from the polished order it returned the *identical* order at a multi-second cost, so it was removed from the shipping path. It is disclosed here as prior art alongside the greedy method.
+
+**Prior art scope.** This disclosure establishes prior art for ordering in-situ mid-print injection events by: (a) a global, cross-object, per-layer schedule rather than per-object; (b) a continuous decay field combining temporal *and* spatial decay so each past injection's thermal influence fades in both time and distance; (c) using *real elapsed injection time* (travel + extrude + z-hop + dwell) as the temporal axis, so inter-injection travel counts as cooling; (d) a dispersion greedy that selects the lowest-heat-on-arrival point with a travel tiebreak; (e) a violation-directed local search refining only currently-crowded near pairs; (f) the equivalent exact formulation as a travel-plus-heat-penalty Hamiltonian circuit solved by constraint programming, warm-started from the travel-optimal tour over a sparse candidate-edge set; and (g) caching the solved per-layer order in a dedicated slicing stage keyed by layer height.
 
 ---
 
@@ -1149,7 +1550,7 @@ Window height is auto-calculated from `1.2 * tube_area / inset_side` where `inse
 
 **Implementation status: IMPLEMENTED and tested in software.**
 
-### 7.a MAGMA_TUBE G-code Comment Protocol
+### 8.a MAGMA_TUBE G-code Comment Protocol
 
 Tube visualization data is embedded in G-code comments, preserving backward compatibility with G-code processors that do not understand the Magma extensions:
 
@@ -1180,7 +1581,7 @@ Example output:
 
 The GCodeProcessor parses these comments and expands the single stationary injection extrusion into synthetic vertices tracing the U-tube spiral path: descend through cell A, cross through the window into cell B, ascend through cell B. The sequential slider animates tube filling progressively.
 
-### 7.b 3D Douglas-Peucker Simplification
+### 8.b 3D Douglas-Peucker Simplification
 
 The U-tube spiral path through 3D space is simplified using the Ramer-Douglas-Peucker algorithm (via libigl) to reduce the number of waypoints while preserving the helical shape:
 
@@ -1216,7 +1617,7 @@ static std::vector<Vec3d> build_tube_viz_waypoints(
 
 The tolerance is set to `interior_width * 0.1`, meaning simplification preserves features larger than 10% of the tube diameter. When spirals are disabled, RDP typically reduces 20-120 points down to approximately 5 key points (top of A, bottom of A, window crossing, bottom of B, top of B). With spirals enabled, additional points are retained where the helix curvature is significant.
 
-### 7.c erMagmaInjection Extrusion Role
+### 8.c erMagmaInjection Extrusion Role
 
 A dedicated extrusion role `erMagmaInjection` is added to OrcaSlicer's role system:
 
@@ -1234,7 +1635,7 @@ This role is rendered in lava-orange color (RGB 255, 25, 0) in the G-code previe
 
 The dedicated role enables: distinct visual identification of injection extrusions in the preview, separate speed/flow settings for injection vs. normal printing, and correct classification of stationary extrusions (which would otherwise be classified as unretracts).
 
-### 7.d Zone Boundary Surface Types
+### 8.d Zone Boundary Surface Types
 
 Three new surface types enable distinct rendering and per-zone settings:
 
@@ -1265,7 +1666,7 @@ Zone boundaries are treated as solid surfaces for shell propagation (top/bottom 
 
 **Implementation status: IMPLEMENTED and tested in software.**
 
-### 8.a SLA Hollowing Repurposed for FDM
+### 9.a SLA Hollowing Repurposed for FDM
 
 The inner shell boundary is computed using OrcaSlicer's existing SLA `generate_interior()` function, which was originally designed to hollow SLA (resin) prints for material savings. The system wraps this function with custom zone-specific processing:
 
@@ -1285,7 +1686,7 @@ void filter_thin_interior(sla::Interior &interior, double min_width);
 
 The SLA hollowing function computes an interior mesh by offsetting the original mesh inward by a specified thickness, using OpenVDB level-set operations. This produces an inner shell mesh that follows the contours of the outer model at a consistent distance, forming the boundary between the outer zone (Magma infill) and the inner zone (standard infill or hollow).
 
-### 8.b Constrained Mean Curvature Flow Smoothing
+### 9.b Constrained Mean Curvature Flow Smoothing
 
 The inner shell boundary undergoes smoothing to reduce stair-step artifacts while maintaining minimum shell thickness:
 
@@ -1352,7 +1753,7 @@ The algorithm works as follows:
 
 The batching strategy (5 smooth passes before clamping) is more effective than alternating single passes because mean curvature primarily shrinks convex features inward, which the clamping constraint does not block. Batching allows more effective smoothing per CSG operation.
 
-### 8.c Thin Section Filtering
+### 9.c Thin Section Filtering
 
 Before smoothing, thin inner zone sections are removed using morphological reconstruction:
 
@@ -1390,35 +1791,49 @@ The algorithm is: erode the SDF to find a thick core (regions where the interior
 
 ---
 
-## 10. DESIGNED BUT NOT IMPLEMENTED
+## 10. DESIGNED (SOME SINCE IMPLEMENTED)
 
-**Implementation status: These features were designed with detailed specifications but removed from the current release for the stated reasons. They are disclosed here for defensive publication purposes to establish prior art.**
+**Implementation status: These features were designed with detailed specifications. Several have since been implemented and are marked inline — Whirl Seal → Crater Ironing (9.c), Stagger-Level Ordering → thermal-aware ordering (9.d), Hexagonal → Magma Tri-hex (9.b), and Rectilinear (Grid) → Magma Rectilinear (9.f). The remainder (9.a Corner Width Optimization, 9.e Coupled Thermal-Pressure Depth Model) were not implemented for the stated reasons. All are disclosed here for defensive publication purposes to establish prior art.**
 
-### 9.a Corner Width Optimization
+### 10.a Corner Width Optimization
 
 **Design:** Increase infill line width near triangle corners to make the tube cross-section more circular, improving injection flow. The implementation would use distance-to-vertex calculation with a blend ratio to smoothly transition from normal line width to enhanced corner width. Per-point width values would be stored in ThickPolylines and rendered using OrcaSlicer's existing `variable_width()` extrusion system.
 
 **Reason for removal:** At Magma cell scales (approximately 1.27mm edge length with a 0.4mm nozzle), width transitions occur in approximately 4.4ms at 100mm/s print speed. However, extruder pressure advance response time is 20-60ms for direct drive extruders. The extruder cannot track flow changes fast enough for the feature to produce meaningful results at these scales. The design is sound for larger cell sizes but impractical for the current target geometry.
 
-### 9.b Hexagonal Infill Pattern
+### 10.b Hexagonal / Tri-hex Infill Pattern
 
-**Design:** A modified honeycomb pattern with 6 neighbors per cell, 120-degree corners, adapted for Magma tube formation. Each hexagonal cell would have 6 potential pairing partners, with window placement on any of the 6 shared edges.
+**Status update: IMPLEMENTED as both Magma Tri-hex and Magma Honeycomb.** The pure-hexagon lattice below was the original design. It now ships in two forms: (1) as the **Magma Honeycomb** pattern (Section 3.h), a direct regular-hexagon tiling whose continuous lane-pair sweep with anisotropic-stretch compensation resolves the print-speed trade-off that originally motivated the hybrid; and (2) as **Magma Tri-hex**, a hybrid lattice of hexagonal cells plus the triangular cells that tile the gaps between them. Tri-hex uses **vent-based injection allocation** (a single injection serving multiple connected vents) rather than only pairwise U-tube coupling, and runs on the shared per-shape lattice/solver/injection pipeline (claim 13). Mixing triangular cells between the hexagons recovers the triangular pattern's continuous line families while keeping the hexagonal cells' multi-neighbour pairing. The original pure-hex design is retained below for prior art.
 
-**Reason for removal:** Significantly slower to print than the triangular pattern due to more direction changes per unit area. The triangular pattern produces 3 sets of parallel lines (0, 60, 120 degrees), each of which can be printed in a single continuous sweep. The hexagonal pattern requires 6 direction changes per cell perimeter, producing shorter line segments and more travel moves. Additionally, the triangular pattern produces more reinforcing tubes per unit area than the hexagonal pattern for the same cell spacing.
+**How it works (Magma Tri-hex):**
 
-### 9.c Whirl Seal Move
+- *Lattice and toolpath.* A trihexagonal tiling: hexagon cells (hubs) with up/down triangle cells filling the gaps. It is bipartite -- a hex borders only triangles (6), a triangle borders only hexes (3), in a 2:1 triangle:hex ratio. The trihexagonal tiling is the *rectified* triangular grid, so its walls are exactly the triangular pattern's three straight line families (0/60/120 degrees) shifted by one-half lattice index in each family. The toolpath is therefore generated by the SAME single-wall line generator as the triangular pattern -- three families of full straight lines, clipped to the region and chained per direction into continuous sweeps -- with each open hub<->vent window cut as a gap on whichever family carries that shared wall. The one-half-index shift is precisely what opens the hollow hexagons: at the shifted positions no line of any family passes through a hub vertex (integer index) or a vent centroid (thirds), so the hub and vent interiors stay open tubes while every wall lies on exactly one family. This discloses generating a trihexagonal vertical-reinforcement infill as three rectified (half-shifted) straight line families with per-family window interruptions.
+
+- *Manifold injection unit.* One injection fills a **manifold**: a hub cell over a layer range [start, cap] plus N **vent legs**, each a triangle cell spanning the SAME [start, cap]. Windows are pinned to the tube bottom, so all legs are equal length; plastic enters each leg at the bottom window, fills up to the cap, and air escapes at the cap (the print surface at injection time). The two-cell U-tube is the degenerate one-leg manifold.
+
+- *Hub scheduling (reuses the existing solver unchanged).* The bipartite hub<->vent adjacency is fed to the same tube-assignment solver (Section 5); ordinary per-cell exclusivity yields a hub<->vent matching that gives every hub-tube exactly one **primary** leg -- which both schedules the hub-tube's range, stagger, and height and guarantees the hub can inject (air escape).
+
+- *Vent-fill allocation (maximize filled volume).* A second per-vent pass adds further legs to maximize total filled vent volume. For each vent it forms an "unavailable" layer mask -- the union of layers where the vent cell is absent due to part geometry AND layers already claimed by the primary matching -- and discards any candidate hub-tube whose [start, cap] crosses that mask (a block or prior claim inside the range would trap injected air). The surviving layers split the vent into present-runs; within each run it selects, by weighted interval scheduling over the fully-contained hub-tube ranges, the non-overlapping set covering the most layers (tie-broken toward the least-loaded hub for even distribution), and attaches the vent to those tubes as extra legs. Because hubs are uncapped and each vent layer is filled exactly once, the passes are independent per vent and yield the maximal vent fill achievable with windows aligned to real tube bottoms.
+
+**Design (original pure-hex):** A modified honeycomb pattern with 6 neighbors per cell, 120-degree corners, adapted for Magma tube formation. Each hexagonal cell would have 6 potential pairing partners, with window placement on any of the 6 shared edges.
+
+**Original trade-off (motivating the hybrid form):** A pure-hexagon lattice prints more slowly than the triangular pattern due to more direction changes per unit area -- the triangular pattern produces 3 sets of parallel lines (0, 60, 120 degrees), each printable in a single continuous sweep, whereas a hexagon perimeter requires more direction changes and shorter segments. The tri-hex form mixes triangular cells between hexagons to recover continuous sweeps.
+
+### 10.c Whirl Seal Move (superseded by implemented Crater Ironing)
+
+**Status update:** This was the original design for a circular nozzle motion around the injection hole. It is now **implemented and superseded** by Crater Ironing (Section 7.d), which is a spiral (not a single circle) that additionally uses the nozzle cone to plow the displaced rim back into the crater and is neighbour-aware. The original single-circle design is retained below as disclosed prior art.
 
 **Design:** A circular motion of the nozzle around the injection hole before and/or after injection. The nozzle would trace a circle of radius approximately equal to the interior width, flattening any loose plastic from previous printing operations and ensuring a clean surface for the Z-slam seal to press against. Specification included configurable radius, speed, and number of revolutions.
 
-**Reason not implemented:** The Z-slam seal has proven sufficient in initial testing without the whirl move. The additional complexity and print time were not justified. The design is retained for cases where materials with high stringing or poor bed adhesion require additional surface preparation.
+### 10.d Stagger-Level Injection Ordering (alternative within the implemented ordering family)
 
-### 9.d Stagger-Level Injection Ordering
+**Status update:** Thermal-aware injection ordering **is now implemented** -- see Section 7.h, which orders injections globally per layer to spread spatially-near injections out in time. The stagger-level scheme described below was an earlier design for the same goal (preventing thermal cross-talk between simultaneously-filled neighbours); it is retained here as a disclosed alternative formulation within that family.
 
 **Design:** Order injection within each layer so that U-tube pairs with the lowest floor (deepest tubes) are filled first. This ensures that deeper tubes solidify before shallower fills, preventing thermal interactions between adjacent tubes being filled simultaneously. The ordering would be: within each stagger level, sort by `pair_start_layer` ascending; across stagger levels, process the lowest stagger level first.
 
-**Reason not implemented:** The current implementation uses TSP-ordered injection (via `chain_points()` KD-tree solver) to minimize travel distance between injection points. For most geometries, the travel optimization produces better print times than stagger-ordered injection, and the thermal interaction between adjacent tubes is minimal due to the stagger pattern already separating their window heights. The design may be relevant for extremely dense tube patterns where thermal cross-talk becomes significant.
+**Why the spatial heat-spread order (6.h) was implemented instead:** The stagger-level scheme orders by tube depth and stagger class, which only indirectly correlates with spatial proximity -- two tubes at the same stagger level can still be physically adjacent. The implemented order penalises *spatial* time-proximity directly (and globally across objects), which targets the actual heat-coupling failure more precisely, while the TSP warm start keeps travel close to optimal. The stagger-level variant remains a simpler heuristic of interest for extremely dense single-object tube patterns, and is disclosed for prior-art purposes.
 
-### 9.e Coupled Thermal-Pressure Injection Depth Model
+### 10.e Coupled Thermal-Pressure Injection Depth Model
 
 **Design:** Automatic computation of maximum achievable injection depth using a coupled thermal and pressure model. The tube is modeled as a hollow cylinder with triangular cross-section and equivalent hydraulic diameter.
 
@@ -1465,13 +1880,25 @@ max_depth      = min(depth_thermal, depth_pressure)
 
 **Prior art scope:** This disclosure establishes prior art for: (a) using coupled Hagen-Poiseuille pressure and thermal diffusion models to automatically compute injection tube depth limits, (b) the mathematical property that volumetric speed drops out of the coupled solution, yielding a depth that depends only on geometry and material properties, (c) automatic injection speed derivation from the coupled solution, and (d) configurable material parameters (viscosity, thermal diffusivity, extruder pressure) for per-filament injection optimization.
 
+### 10.f Rectilinear (Grid) Infill Pattern
+
+**Status update: IMPLEMENTED as Magma Rectilinear.** Now shipping as a selectable pattern (square cells, two perpendicular single-wall line families, a window omitted from a shared edge). The original design and trade-off discussion below are retained for prior art.
+
+**Design:** A grid lattice in which two families of parallel infill lines at 0 and 90 degrees form square (or, with unequal spacing, rectangular) cells. Each cell is a vertical channel with a square cross-section. As with the triangular pattern, cell spacing is derived from the nozzle and interior-width geometry, each cell is paired with an orthogonally adjacent neighbor sharing a wall, and a window gap omitted from the shared wall connects the pair into a U-tube. Stagger levels, spiral interlock, and per-layer volume computation apply directly, substituting the square-cell geometry (cross-section `iw^2`, perimeter `4 * iw`, hydraulic diameter `iw`) into the same formulas. A 45-degree-rotated variant produces diamond cells with injection holes offset between layers.
+
+**Advantages:** The two line families are long, continuous, orthogonal sweeps that print quickly with minimal direction changes (matching the speed characteristics of standard rectilinear/grid infill). The square cross-section presents a large flat sealing area and is straightforward to model and size.
+
+**Trade-offs vs. triangle:** Square cells have 90-degree interior corners, which give somewhat poorer injection flow and are a little harder for a round nozzle to seal than the 120-degree corners of the triangular pattern; for equal wall material the grid produces fewer reinforcing tubes per unit area, and window placement is limited to the 4 cell edges. The triangular pattern remains the default for those reasons, but rectilinear is offered as an option where its long, continuous orthogonal sweeps and large flat sealing face are preferred.
+
+**Prior art scope:** This disclosure establishes prior art for square-, rectangular-, and diamond-cross-section channel variants of the Magma tube system, including orthogonal grid cell pairing, window placement on grid cell edges, and the application of stagger, spiral interlock, and volume computation to grid-based Magma channels.
+
 ---
 
 ## 11. SPECULATIVE EMBODIMENTS
 
 **Implementation status: SPECULATIVE. These concepts are disclosed for broader defensive coverage. None have been implemented or tested. They represent reasonable extensions of the disclosed system that a person skilled in the art might pursue.**
 
-### 10.a Non-Planar and Conformal Layers
+### 11.a Non-Planar and Conformal Layers
 
 The Magma tube system could be extended to non-planar printing (curved-layer FFF) where the Z-height varies continuously across each layer. In this embodiment:
 
@@ -1481,7 +1908,7 @@ The Magma tube system could be extended to non-planar printing (curved-layer FFF
 - 5-axis or 6-axis robotic implementations could print non-planar layers with arbitrary orientation, enabling tubes aligned with structural load paths.
 - Conformal cooling channels (following the contour of the part surface at a fixed offset depth) could be generated using the same lattice system projected onto offset surfaces.
 
-### 10.b Advanced Channel Topologies
+### 11.b Advanced Channel Topologies
 
 Beyond U-tube pairs, the channel network could employ:
 
@@ -1492,14 +1919,14 @@ Beyond U-tube pairs, the channel network could employ:
 - **Series-connected tubes:** Multiple U-tube pairs connected in series through shared windows, enabling a single injection to fill multiple tube pairs.
 - **Lattice mixing:** Combining triangular and hexagonal cells in different regions of the same part based on local structural requirements.
 
-### 10.c Simulation-Driven Optimization
+### 11.c Simulation-Driven Optimization
 
 - **FEA stress-adaptive topology:** Use finite element analysis to compute principal stress vectors throughout the part, then align tube orientation and density with the stress field. High-stress regions would receive denser tubes aligned with the tensile direction; low-stress regions would receive sparser tubes or none.
 - **CFD flow-optimized injection:** Model the injection process using computational fluid dynamics with non-Newtonian fluid models (power-law or Carreau-Yasuda) to optimize tube geometry for complete filling. Include thermal coupling (fluid cooling during injection) and solidification front tracking.
 - **Wall-modifying generators:** Locally thicken infill walls at tube interfaces to improve the seal between tube walls and injection plastic. Could use adaptive line width based on proximity to tube centers.
 - **Topology optimization with injection constraints:** Standard SIMP or level-set topology optimization with additional constraints ensuring that all high-density regions are reachable by injection tubes and that tube networks remain connected.
 
-### 10.d Hardware Methods
+### 11.d Hardware Methods
 
 - **Parallel injection manifolds:** A plate with multiple injection nozzles arranged to match the tube pattern, enabling simultaneous injection of multiple tubes. The manifold would press against the print surface with spring-loaded nozzles that accommodate slight height variations.
 - **Plate injection manifolds:** A flat plate with channels machined to match the tube pattern, pressing against the print surface to inject multiple tubes through a single pressurized reservoir.
@@ -1507,8 +1934,14 @@ Beyond U-tube pairs, the channel network could employ:
 - **Back-pressure monitoring via motor torque:** Monitor extruder motor current or stepper driver load during injection to detect tube blockages, overfilling, or air locks. Abort injection for a specific tube if back-pressure exceeds a threshold.
 - **Micro-venting:** Sub-0.2mm diameter air exit holes at the top of vent-side tubes, sized to allow air to escape via surface tension effects while retaining the higher-viscosity injection plastic. Could be implemented as intentional gaps in the top layer of infill.
 - **Heated injection manifold:** A separate heated element that maintains injection material at elevated temperature during multi-tube injection, avoiding the thermal cycling of heating/cooling the printer's hotend for each injection layer.
+- **High-flow nozzles:** CHT, Volcano, or other high-throughput nozzle geometries that sustain greater volumetric flow at lower pressure drop, enabling faster injection before the surrounding cell walls heat-soak.
+- **Purpose-shaped injection nozzles:** Nozzles with tips profiled to match the tube cross-section (e.g., triangular) and a flat sealing face, improving the seal between nozzle and tube opening during Z-slam injection.
+- **Compliant tip seals:** Silicone or elastomer gaskets at the nozzle tip that conform to the print surface and seal around the tube opening during injection.
+- **Non-stick nozzle coatings:** PTFE or other low-adhesion coatings on the injection nozzle to prevent injected material from adhering to and lifting off the tip when the nozzle retracts.
+- **Thermally isolated injection nozzles:** A thermal break around the injection nozzle limiting heat conduction into the cell tops, reducing premature softening or deformation of the surrounding printed walls during injection.
+- **Enlarged-bore injection nozzles:** A nozzle with a larger bore dedicated to injection, providing greater volumetric throughput at lower pressure than the printing nozzle.
 
-### 10.e Material Variations
+### 11.e Material Variations
 
 The injection channels could be filled with materials other than the same thermoplastic used for printing:
 
@@ -1518,12 +1951,16 @@ The injection channels could be filled with materials other than the same thermo
 - **Reinforced slurries:** Chopped fiber matrices (carbon fiber, glass fiber, aramid) suspended in a carrier resin. The channel cross-section would be sized to allow fiber passage without clogging, and flow modeling would account for fiber orientation effects.
 - **Low-melting-point metals:** Solder, Field's metal, or other low-melting alloys for applications requiring electrical conductivity or thermal conductivity. Injection temperature and tube wall material compatibility would need to be verified.
 - **Foaming agents:** Materials that expand after injection to fill voids and provide insulation or cushioning. Channel sizing would account for expansion ratio.
+- **Asymmetric dual-material injection:** Printing the channel walls in a higher-temperature structural material (e.g., PETG, ABS, PC, or fiber-filled composite) while injecting a lower-temperature or lower-viscosity material (e.g., PLA), using a dual-extruder, IDEX, or toolchanger machine so the structure and injectate can have independent temperatures and nozzle geometries. The injected material interlocks mechanically with the channel geometry and need not chemically bond to the walls.
+- **Low-melt and sacrificial injectates:** Low-melting-point thermoplastics such as polycaprolactone (PCL, ~60°C) or TPU, or sacrificial sugar/wax fills for lost-material post-processing, chosen for ease of injection or subsequent removal.
+- **Adhesives and sealants:** Glue, silicone, or other room-temperature-curing adhesives and sealants injected to bond adjacent layers, where the injectate cures chemically rather than re-solidifying thermally.
+- **Post-injection annealing:** Heat-treating the completed part to fuse the injected material to the channel walls and strengthen the interfacial bond after injection.
 
-### 10.f Shell Mode
+### 11.f Shell Mode
 
 A variant where the part consists primarily of form-following shells with injection channels between them, designed for curved or sloped surfaces where planar infill is inefficient. The shells would follow the part's contour at varying offsets, with channels running between adjacent shells. This mode would be particularly effective for thin-walled parts, aerodynamic surfaces, and enclosures where the structural load follows the surface geometry.
 
-### 10.g Adaptive Cell Sizing
+### 11.g Adaptive Cell Sizing
 
 Variable-density tube patterns where cell size varies across the part based on:
 
@@ -1539,19 +1976,48 @@ Variable-density tube patterns where cell size varies across the part based on:
 
 ### Public Domain Dedication
 
-This document and all concepts, methods, algorithms, code, data structures, and embodiments described herein are dedicated to the **Public Domain** under the **Creative Commons CC0 1.0 Universal** dedication.
+This document, and the concepts, methods, algorithms, data structures and embodiments it
+describes, are dedicated to the **Public Domain** under the **Creative Commons CC0 1.0
+Universal** dedication.
 
-To the extent possible under law, the authors have waived all copyright and related or neighboring rights to this work. This work is published from the United States.
+**This dedication covers the disclosure and the techniques, not the source code.** The
+implementing code is a derivative work of OrcaSlicer and is necessarily licensed **AGPL-3.0**,
+inherited from upstream — see [Source Code Availability](#source-code-availability). The two are
+independent: the AGPL governs copying the particular implementation, while the CC0 dedication
+and this disclosure's prior-art effect place the underlying techniques beyond patenting by
+anyone, including the author.
+
+To the extent possible under law, the author has waived all copyright and related or neighboring rights to this work. This work is published from the United States.
 
 Full text of the CC0 dedication: https://creativecommons.org/publicdomain/zero/1.0/
 
 ### Prior Art Declaration
 
-This document serves as a **Defensive Publication**. All concepts, methods, algorithms, code, and structures described herein are disclosed to the public to establish **Prior Art**, preventing the patenting of these ideas by third parties. This work is dedicated to the Public Domain under the Creative Commons CC0 1.0 Universal dedication.
+This document serves as a **Defensive Publication**. The concepts, methods, algorithms and
+structures described herein are disclosed publicly to establish **Prior Art**, so that they
+cannot be patented by anyone.
 
-The original publication date of **February 9, 2026** establishes the priority date for Sections 1-4, 6-12. The update date of **March 16, 2026** establishes the priority date for Section 5 (Optimized Tube Assignment). Any patent application filed after this date covering substantially similar subject matter is anticipated by this disclosure.
+**Operative dates.** Prior art dates from public accessibility. Each date below is when that
+material was pushed to this repository, as recorded in GitHub's push log for it (the
+repository's Activity view).
 
-The disclosed system encompasses, but is not limited to:
+| Pushed (UTC) | Material |
+|---|---|
+| May 6, 2026 (announced Jun 9, 2026) | Sections 1-12 as originally published, including Section 5, Optimized Tube Assignment (two-stage solver) — claims 1-8 |
+| Jun 21, 2026 | Automatic Z-slam sealing depth from nozzle cone geometry (claim 9); heat-spread injection ordering (claim 10); progressive plunge (claim 11); crater ironing (claim 12) |
+| Jun 24, 2026 | Shape-generic multi-pattern lattice: Rectilinear, Tri-hex (claim 13); dual cell-presence gate (claim 14); clipped-cavity centroid injection point (claim 15); manifold injection with vent allocation (claim 16); per-tube actual-opening form of the claim 9 sealing model |
+| Aug 17, 2026 | Magma Honeycomb with continuous-sweep doubled-wall compensation (§3.h); measured injection volume from deposited toolpath (§4.g); self-scaling overlap compensation (§4.h) — claims 17-19 |
+| Aug 25-26, 2026 | Addendum A (superseded mechanisms) and Addendum B (further disclosure) |
+
+Every numbered claim in Section 1 is covered by one of the rows above.
+
+**On scope.** The list below indexes the subject matter this disclosure covers. It is an index
+into the body, not a claim set — a defensive publication anticipates what it actually describes
+and nothing more, so no "including but not limited to" language is used or intended. Whether any
+particular later application is anticipated is for an examiner or a court to decide against
+specific claims; this document simply puts the material in the public record on a fixed date.
+
+Subject matter disclosed:
 
 1. Triangular lattice coordinate systems for infill tube placement in FDM printing
 2. Stagger coloring algorithms using modular arithmetic on lattice coordinates
@@ -1559,7 +2025,9 @@ The disclosed system encompasses, but is not limited to:
 4. Dual-lattice identity/position tracking for stable tube assignment across layers
 5. Coupled thermal-pressure models for computing injection depth limits
 6. Z-slam sealing techniques for nozzle-based injection into printed channels
-7. Per-layer injection as a print stage within FDM printing processes
+7. Per-layer injection as a print stage within FDM printing processes — *disclosed as
+   implementation detail only. Novelty in the underlying concept is expressly disclaimed; see
+   Section 1.1, which credits the prior work. This entry claims nothing over that prior work.*
 8. Window (fenestration) placement in infill walls for U-tube formation
 9. G-code comment protocols for embedding 3D visualization metadata
 10. SLA hollowing algorithms repurposed for FDM dual-zone boundary generation
@@ -1569,7 +2037,7 @@ The disclosed system encompasses, but is not limited to:
 14. Constriction detection using area-ratio heuristics
 15. Parametric gap splitting for diagonal infill lines
 16. Volumetric speed fallback hierarchies for injection extrusion
-17. Tube-end ironing passes after injection
+17. Crater ironing: a post-injection inward-spiral plow that pushes the displaced rim back into the crater and scrapes the nozzle clean, hovering over neighbour cells so their air holes stay open
 18. Multi-material filament switching for injection
 19. Segmented injection extrusion for progressive preview animation
 20. Auto-sizing of tube geometry from nozzle diameter
@@ -1598,88 +2066,353 @@ The disclosed system encompasses, but is not limited to:
 43. Per-cell consumed-interval tracking with binary search overlap detection
 44. Five-tier safe park positioning for injection temperature changes
 45. Parallel-transported frame computation for near-vertical GCode preview rendering
+46. Square (rectilinear) and tri-hex (hexagon + triangle) Magma lattice patterns, and a shape-generic per-shape geometry/lattice abstraction sharing one solver, injection, and rendering pipeline across patterns
+47. Vent-based injection allocation (a single injection serving multiple connected vents) for mixed hexagon/triangle lattices
+48. Dual cell-presence gating combining a minimum clipped-area fraction with a minimum injection-point clearance to the opening boundary
+49. Per-tube injection sealing depth computed from each tube's actual (boundary-clipped) opening rather than a single global ideal
+50. Clipped-cavity centroid injection-point selection (inscribed-circle centre for regular cells) for boundary-clipped cells
+51. Regular-hexagon (honeycomb) Magma lattice whose cell size is set by the nozzle-derived tube interior width, generated as a single continuous lane-pair honeycomb sweep, with anisotropic lattice pre-stretch (flat-to-flat +2*line_width, vertex and row pitch +line_width/sqrt(3)) compensating the sweep's doubled vertical walls so the open injectable cross-section is a regular hexagon
+52. Measuring an in-situ printed channel's per-layer injectable cavity from the generated toolpath (cell polygons intersected with the infill zone, minus the deposited extrusion-width footprint) rather than estimating it from a closed-form cross-section, capturing side-by-side doubled walls, window gaps, and part-edge clipping in one operation
+53. A single, always-applied, self-scaling overlap correction subtracted from a toolpath-measured cavity, sized to the actual deposited line width, so line-crossing over-extrusion is corrected exactly once and never double-counted -- a residual when an optional print-quality flow-reduction lever has thinned the lines, the full overlap when it has not -- with the per-cell overlap area a shape-specific constant apportioned by incident-cell corner count (zero for the honeycomb pattern, whose junctions are line ends rather than crossings)
 
 ### Source Code Availability
 
-The complete source code implementing the IMPLEMENTED portions of this disclosure is available as open-source software under the same CC0 public domain dedication. The code is implemented as modifications to OrcaSlicer, an open-source 3D slicer application.
+The complete source code implementing the IMPLEMENTED portions of this disclosure is public at
+**https://github.com/MGunlogson/OrcaSlicer** (branch `magma-infill`).
+
+It is licensed **AGPL-3.0**, inherited from OrcaSlicer, of which it is a derivative work. It
+**cannot** be CC0-dedicated, and an earlier revision of this section wrongly stated that it was.
+The techniques the code implements are dedicated to the public domain by this disclosure; the
+code itself carries upstream's copyleft.
 
 ---
 
-## Structured Data for Search Engine Indexing
+## Addendum A: Superseded mechanisms (August 25, 2026)
 
-```json
-{
-  "@context": "https://schema.org",
-  "@type": "TechArticle",
-  "headline": "Defensive Publication: Magma Vertical Reinforcement Infill System for FDM 3D Printing",
-  "datePublished": "2026-02-09",
-  "author": {
-    "@type": "Organization",
-    "name": "Magma Project Contributors"
-  },
-  "description": "Public domain disclosure of a software system for vertical reinforcement of FDM 3D printed parts using triangular lattice infill with hollow channels filled by per-layer injection during printing. Establishes prior art for coordinate systems, spiral interlock, coupled thermal-pressure injection models, two-stage greedy/CP-SAT tube assignment solvers with integer micron arithmetic and discrete domain optimization, zone boundary generation, safe park positioning, and G-code visualization protocols.",
-  "license": "https://creativecommons.org/publicdomain/zero/1.0/",
-  "keywords": [
-    "FDM 3D printing",
-    "vertical reinforcement",
-    "infill pattern",
-    "triangular lattice",
-    "injection molding",
-    "per-layer injection",
-    "U-tube channels",
-    "spiral interlock",
-    "helical tubes",
-    "stagger coloring",
-    "window fenestration",
-    "coupled thermal-pressure model",
-    "hydraulic diameter",
-    "Hagen-Poiseuille",
-    "injection depth",
-    "Z-slam seal",
-    "G-code generation",
-    "slicer software",
-    "OrcaSlicer",
-    "open source",
-    "public domain",
-    "defensive publication",
-    "prior art",
-    "CC0",
-    "zone boundary",
-    "SLA hollowing",
-    "mean curvature flow",
-    "OpenVDB",
-    "dual-zone architecture",
-    "multi-material injection",
-    "tube visualization",
-    "Douglas-Peucker simplification",
-    "adaptive layer height",
-    "constriction detection",
-    "salvage tube assignment",
-    "morphological reconstruction",
-    "constraint programming",
-    "CP-SAT solver",
-    "OR-Tools",
-    "interval scheduling",
-    "greedy heuristic",
-    "most-constrained-first",
-    "warm start",
-    "integer micron arithmetic",
-    "discrete domains",
-    "LP relaxation",
-    "weak plane avoidance",
-    "spatial block partitioning",
-    "cumulative scheduling",
-    "safe park positioning",
-    "parallel transport frame"
-  ],
-  "inLanguage": "en",
-  "isAccessibleForFree": true,
-  "proficiencyLevel": "Expert",
-  "genre": "Defensive Publication",
-  "about": {
-    "@type": "Thing",
-    "name": "Magma Vertical Reinforcement Infill System",
-    "description": "Software-only vertical reinforcement for FDM 3D printing via per-layer injection into triangular lattice channels"
-  }
-}
-```
+The disclosure above is unchanged from publication. This addendum records which of its
+mechanisms test prints have since superseded, so nobody implements a model its own author
+abandoned. Everything disclosed stays dedicated to the public domain either way. The point of
+the disclosure is that none of it can be enclosed by anyone.
+
+Each entry below names the sections it applies to. An earlier version of this addendum did not,
+which left a reader no way to tell which passages above were still live. Entries A.6 through
+A.10 were added after an audit of the body against the shipping source, and cover drift the
+first version of this addendum missed entirely.
+
+### A.1 The immersion-budget model is withdrawn
+
+**Applies to: Section 7.c (Z-Slam Sealing), Section 7.g (Auto-Sizing), and claim 9 in the
+Section 1 abstract.**
+
+Those sections describe a user-facing **nozzle-immersion budget** (`magma_max_immersion`), the
+**inversion** of that budget to size the printed channel (`magma_tube_width_mode` = Auto), and
+the **auto slam press** (`magma_auto_slam_press`). That design shipped and was then replaced.
+All three settings no longer exist.
+
+Section 7.g is superseded in whole: there is no auto-sizing path at all. Tube interior width is
+now a plain user setting, and `max_opening_for_immersion()` survives in the source only as
+uncalled dead code. Claim 9's formula in the abstract carries a `margin` term that no longer
+exists.
+
+The model had the causality backwards. Immersion is what damages the part, so making it the
+input and deriving the tube from it left channel width, the thing a user actually wants, as a
+side effect. It also coupled the plunge to the tube, so pressing harder during an injection
+silently narrowed the channel it was sealing.
+
+The current model takes tube interior width as the input:
+
+    seal depth  = (opening - nozzle flat) / (2 * tan(cone half-angle)) + seal press
+    total depth = seal depth + plunge depth
+    corner grip = (seal press + plunge depth) * tan(cone half-angle)
+
+There is no margin term; the earlier `MAGMA_SEAL_MARGIN` constant no longer exists. Seal press
+and plunge are the same physical quantity — depth past first contact — applied before and
+during the injection respectively.
+
+### A.2 The cone-versus-cell-pitch damage ceiling is withdrawn
+
+**Applies to: the project's tuning guidance and slicer warnings, not to this document.** An
+audit found no passage in Sections 1-12 that states this claim; it lived in the project's
+calibration notes and in a slicer validation warning. The retraction is recorded here anyway so
+the public record is complete, and because the ratio still appears in the implementation.
+
+The claim was that the nozzle cone widening past one cell pitch is the mechanism that distorts
+the surrounding lattice. Measured print evidence contradicts this in both directions: a sweep
+reached 135% of cell pitch with no lattice disruption, while another degraded at 106%.
+
+The measurement behind the ceiling came from a sweep in which immersion sized the tube, so what
+varied across it was the channel and its injected volume rather than the cone. The damage was
+real and the attributed cause was wrong. The ratio survives in the implementation only as a
+geometric sanity bound.
+
+### A.3 "The seal is the binding constraint" is superseded
+
+**Applies to: Section 1.1, which states this as a headline empirical finding, and to Section 7.b
+(Injection Speed and Volume).** Note that Section 1.1 is the section this project's README links
+to directly, so this correction matters more than its length suggests.
+
+The disclosure states that at same-material injection the seal, rather than flow, is the binding
+constraint. Testing puts the binding constraint elsewhere: the **duration of a single
+injection**. Roughly 1.5 s or less prints cleanly, about 2 s begins to deform the lattice, and 3 s
+destroys the cells around the injection point. Since injection runs at the filament's maximum
+volumetric rate, injection time is set by volume per tube, and therefore by channel width and
+tube height.
+
+The mechanism behind that limit is not established. Two explanations fit every result and no
+test has separated them: the nozzle acting as a heat source for as long as it is sealed into a
+cell, or the melt freezing partway down the channel so backpressure forces it back out past the
+seal. Both worsen with duration. This is an open question, not a claim.
+
+One approach that does not work, recorded so others do not spend prints on it: splitting a long
+injection into shorter bursts to let the walls cool between them. The melt solidifies into a
+plug and the rest of the injection has nowhere to go.
+
+### A.4 Corrected guidance on nozzle geometry
+
+**Applies to: Section 7.c, which frames a wide flat as the easy case needing only a token press,
+and to the tuning guidance that accompanied it.**
+
+The disclosure and its accompanying documentation suggested that a **larger** nozzle tip flat
+would help seal larger or taller channels. The opposite is the case, and this is the most
+consequential correction here.
+
+The flat sets the minimum cell size that can be sealed reliably, because seal depth is governed
+by how much wider the cell is than the flat, and below roughly 0.4 mm of engagement the seal
+does not survive the unevenness of a printed rim. A smaller flat therefore permits smaller
+cells. Since each injection is bounded by duration rather than size, many small channels deliver
+more injected material than a few large ones.
+
+### A.5 Unchanged
+
+Lattice generation, U-tube pairing and window placement, the tube-assignment solver, per-layer
+injection scheduling and heat-spreading order, the measured-cavity volume calculation, crater
+ironing and the progressive plunge during injection are all as disclosed. Every formula in
+Sections 5, 7.d and 9 was re-verified against the shipping source and matches.
+
+Two corrections to the previous version of this entry. **Safe parking** was listed here as
+"unchanged", but it was never actually described anywhere in the body — it appears only as a
+claim heading and an index item. It is disclosed properly in Addendum B.4. And **Magma
+Honeycomb** (Section 3.h) has a known failure mode not recorded above: on the one plate that
+tested it, it sealed poorly, most likely because each vertical wall is drawn as two adjacent
+beads, so the seam between them runs the full height of the tube. The sweep geometry is as
+disclosed; the sealing behaviour is worse than the disclosure implies.
+
+### A.6 Settings and identifiers in the body that do not exist
+
+Section 7.c documents a user-facing slam depth, `magma_injection_z_slam`, with a default of
+0.05 mm, a 3.5 mm clamp, a code sample and a paragraph of tuning advice. **No such setting has
+ever existed in the shipping slicer.** Seal depth is derived per tube from that tube's own
+measured cap opening; the only related knob is `magma_seal_press`. A reader following that
+passage would tune a setting that is not there, toward a value eight times below the 0.40 mm
+seal-depth floor established in A.4.
+
+Section 7.c also contradicts itself: it states the depth is user-configurable, then states
+twenty-eight lines later that "there is no user-facing manual depth". The second statement is
+the correct one.
+
+Renamed since publication, with no change in substance: `auto_slam_depth(opening, flat, cone,
+max_immersion, press)` is now `auto_seal_depth(opening, flat, cone, seal_press)` — four
+arguments, no budget clamp. The clamp moved to a separate `clamp_plunge_depth()`. The
+`MAGMA_SEAL_MARGIN` constant is gone.
+
+Section 8.d and the abstract refer to a `stZoneOuter` surface type and an `is_zone_outer()`
+helper. Both were removed; the outer zone is now identified as ordinary internal surface gated
+on the presence of a zone boundary.
+
+### A.7 The preview subsystem described in Section 8 has been replaced
+
+Section 8 is superseded in whole. Three specifics, because the section is detailed enough that
+someone could try to build from it:
+
+* **Section 8.a's wire format is inert.** The documented `MAGMA_TUBE` comment carries a single
+  width and a flat point list. The shipping format carries a per-line count list and a per-point
+  width, and the parser returns immediately if the count list is absent. The documented format
+  would parse to nothing.
+* **Section 8.a's stated mechanism is wrong.** Injections are not expanded into synthetic
+  toolpath vertices. They populate a **separate parallel vertex stream** that is deliberately not
+  part of the nozzle toolpath, and progressive fill animation is driven by a per-vertex fill-step
+  index rather than by geometry.
+* **Section 8.b describes a simplification that was rejected.** `build_tube_viz_waypoints()` does
+  not exist, and Douglas-Peucker is explicitly wrong for this purpose — it collapses a straight
+  tube to its endpoints, which cannot animate. The shipping code subsamples to a fixed budget,
+  keeping evenly spaced intermediate points. Douglas-Peucker survives only on the crater-ironing
+  spiral, a different feature.
+
+### A.8 The solver objective term in Section 5.c is not the one that works
+
+Section 5.c documents a `W_LENGTH` tiebreaker said to prefer fewer, longer tubes. No such term
+exists, and a linear length bonus cannot produce that preference: rewarding total covered length
+scores one long tube and two half-length tubes identically. The shipping objective instead
+charges a fixed **activation cost** per active tube segment, which makes one long tube strictly
+cheaper than two short ones. The published term is not merely renamed; it could not have worked.
+
+### A.9 Defaults stated in the body are wrong, two of them dangerously
+
+Section 7.b gives `magma_injection_speed` a default of 10 mm³/s. **The default is 0**, and 0
+does not mean "no speed" — it means the filament's maximum volumetric rate. The code sample in
+that section would treat 0 as 1 mm³/s. Since slowing an injection is the single most damaging
+change available (it lengthens the injection, which A.3 identifies as the binding constraint), a
+reader implementing the published snippet gets the worst case rather than the intended one.
+
+Section 7.b gives `magma_tube_height` a default of 4.5 mm. **The default is 3.5 mm**, chosen
+because at the default tube width in PLA a 4.0 mm tube already exceeds the 1.5 s injection
+ceiling. The published default violates this document's own corrected guidance.
+
+Section 7.h describes travel-minimising injection order as the default. **The default is
+heat-spread ordering.** The rest of Section 7.h is accurate.
+
+### A.10 Further drift, recorded for completeness
+
+None of these change a mechanism's substance, but each would mislead someone reading the body as
+a specification:
+
+* **Stagger is not unconditional.** Sections 3.b and 6.e state that CP-SAT cumulative scheduling
+  handles weak-plane avoidance. That is true only in Refined solver mode, which is **not** the
+  default. In the default Basic mode there is no explicit stagger mechanism — only the greedy
+  pass's incidental spread.
+* **Minimum tube height** is 1.5 window heights plus two layers, not the 2 window heights the
+  body derives.
+* **Auto window height** is now a per-pattern method rather than one shared function, and is
+  additionally clamped so a window can never be taller than it is wide — an uncapped window lets
+  injected plastic loop straight across it instead of down the tube.
+* **Window geometry moved.** The body places window-cut computation in the tube map; the shipping
+  architecture inverts this. The tube map answers only a Z-range question, and each pattern's
+  toolpath computes its own cut geometry. A fourth line family was added for the rectilinear
+  pattern.
+* **The greedy heap key** is lexicographic — fewest viable neighbours first, ties broken by
+  shortest best tube — not the sum of achievable tube heights.
+* **The cell identity type** gained a fourth field distinguishing hub from vent cells, and
+  neighbour and orientation queries moved from the cell onto the lattice.
+* **Injection tool registration is now unconditional** for every tube map, not gated on a
+  configured injection filament. The gate was removed deliberately: a cap layer whose tool never
+  prints matched no pass and dropped its injections silently, leaving hollow channels with no
+  diagnostic.
+* **The nozzle flat has a fallback**, contrary to Sections 7.c and 7.g. When unset it estimates
+  2.5× the nozzle bore. Slicing is blocked before an unset flat can reach geometry, and the user
+  interface marks the value as an estimate, so the behaviour is safe — but the body's claim that
+  there is no fallback is incorrect.
+
+### A.11 Two section labels that mislead about implementation status
+
+**Section 10 is titled "DESIGNED (SOME SINCE IMPLEMENTED)".** Its opening paragraph and each
+subsection's status note do resolve which is which, so a careful reader is not misled. But two
+things sit under that heading that are neither designed-only nor superseded:
+
+* **Section 10.b** contains the only technical description anywhere in this document of the
+  manifold injection unit, the hub-to-vent matching, and the vent-fill allocation. That is
+  **claim 16**, it is implemented and shipping, and its sole disclosure is under a heading that
+  says "designed".
+* **Section 10.f** describes the rectilinear pattern, which is the **shipping default** pattern.
+
+Both are disclosed as implemented for the avoidance of doubt.
+
+**Section 3's header states that "all code excerpts are from the working implementation".** That
+is not true of Sections 3.b, 3.e and 4.f, each of which presents a superseded approach. Each
+carries its own accurate inline note, so the error is in the chapter header's scope rather than
+in the subsections themselves.
+
+---
+
+## Addendum B: Further disclosure (August 25, 2026)
+
+Addendum A corrects the record. This addendum **adds** to it.
+
+Auditing the body against the shipping source turned up mechanisms that are implemented,
+user-visible and absent from Sections 1-12. Two of them are the most load-bearing safety
+features the system has. They are disclosed here so they are covered by the same public-domain
+dedication as everything above, and so no one can enclose them. This extends the subject-matter
+index in Section 12.
+
+### B.1 Predicted-injection-duration and seal-depth gates at slice time
+
+The system computes, **before printing**, quantities that can only otherwise be discovered by
+ruining a print, and blocks or warns on them.
+
+* **Predicted injection duration.** For each U-tube, the injectable cavity volume — measured
+  from the deposited toolpath as in Section 4.g — is divided by the filament's maximum
+  volumetric rate to yield the wall-clock duration of that injection. Exceeding a threshold
+  (currently 1.5 s, per A.3) raises a warning naming the offending object. Because injection
+  runs at the material's maximum rate, this is the tightest predictor of lattice damage
+  available without printing.
+* **Seal-depth floor.** The derived seal depth for the chosen tube width and measured nozzle
+  flat is checked against a minimum engagement (currently 0.40 mm, per A.4). Below it the seal
+  does not survive the unevenness of a printed rim, and the slicer says so.
+* **Unmeasured nozzle flat.** Slicing is refused outright, with measurement instructions, rather
+  than proceeding on an estimate that would silently mis-size every tube.
+* Further gates cover a cone-to-pitch absurdity bound, tubes narrower than the nozzle bore, and
+  tube heights below the structural minimum.
+
+Prior art is established for **deriving predicted in-situ injection duration from measured
+channel cavity volume and the filament's maximum volumetric rate, and gating slicing on it**;
+and for **deriving a minimum nozzle-to-channel sealing engagement from nozzle cone geometry and
+channel opening, and gating slicing on it**. Also disclosed: presenting both quantities as live
+readouts in the slicer's settings interface, computed through the same resolver that emits the
+G-code, so the displayed value and the printed behaviour cannot drift apart.
+
+### B.2 Deliberate under-dose of the measured cavity
+
+Section 4.g discloses measuring the injectable cavity exactly. The shipping system then
+multiplies that measurement by a user-facing **fill factor**, default 0.9, and injects the
+reduced quantity. Measuring precisely and then deliberately under-filling is not an obvious
+combination — the reason is that a channel filled to its exact measured volume has nowhere to
+put thermal expansion or trapped air, and over-injection escapes past the seal. Prior art is
+established for scaling a measured in-situ channel dose by a user-controlled factor below unity.
+
+### B.3 Suppressing part cooling across the injection window
+
+Injection is bracketed by markers that override part-cooling fan speed for the duration of the
+injection and restore it afterwards, independently of the fan speed used for printing. Part
+cooling works against an injection: the melt must stay fluid long enough to reach the bottom of
+the channel and back up its partner. Prior art is established for **overriding part-cooling fan
+speed for the duration of an in-situ injection within a layer, as a distinct fan regime from
+the one used for the surrounding printed material**.
+
+### B.4 Five-tier safe park positioning
+
+Claim 8 in the abstract names this and no section described it. Disclosed here.
+
+When the nozzle must change temperature for injection, it cannot remain over the part — it
+would ooze onto the surface. The system selects a parking position by descending a tier list,
+taking the first that is available and reachable: positions outside the printed object but
+within the object's own footprint region; positions elsewhere on the build plate clear of all
+objects and their skirts; a wipe tower or purge structure if one exists; a plate-edge position;
+and finally a fixed fallback. Selection accounts for other objects and instances on the plate,
+so a plate that is full does not silently park over a neighbour. Prior art is established for
+**tiered fallback selection of a nozzle parking position during an in-print temperature change,
+ordered by proximity cost and validated against all objects on the build plate**.
+
+### B.5 Forcing injection to be the last operation on a layer
+
+Section 7.a relies on injection being the final operation of the layer it belongs to. What makes
+that true is a distinct step: after tool ordering is computed, the injecting tool is rotated to
+the end of each cap layer's extruder sequence. Without it the injecting tool could be scheduled
+mid-layer and subsequent printing would run over a freshly injected, still-soft cell top. Prior
+art is established for **constraining the per-layer tool order so that the tool performing
+in-situ injection is scheduled last on any layer containing an injection**.
+
+### B.6 Additional mechanisms
+
+Disclosed for completeness; each is implemented:
+
+* **Injection-side preference.** Which cell of a U-tube pair receives the nozzle is selectable,
+  defaulting to the cell further from the part wall. The disclosure above covers where within a
+  cell to inject, but not which cell of the pair.
+* **Two-stage injection point refinement.** Section 4.g's centroid is computed from the clipped
+  cell opening; the shipping system then re-solves it against the *deposited* cap cavity, so the
+  nozzle centres on the hole that actually exists rather than the one the model predicts.
+* **Per-layer bore narrowing.** A cell's effective bore is scaled by the square root of its
+  clipped-to-ideal area ratio, so partially clipped boundary cells report a realistically
+  narrowed opening for sealing and preview rather than their nominal one.
+* **Per-layer temperature amortisation.** The injection temperature change is performed once per
+  layer around the whole group of that layer's injections, not once per tube. Per-tube ramping
+  would make per-layer injection thermally unaffordable.
+* **Injection diagnostics surfaced in the output.** Silent-degradation modes — a tube measuring
+  zero volume, a non-positive fill factor, a filament declaring no volumetric limit so the rate
+  had to be invented — are counted and reported in the export rather than only in a debug log,
+  so a quietly wrong print announces itself.
+* **Toolpath ordering guards.** Magma infill is exempted from the G-code path re-sort, which
+  would otherwise reorder window-gap fragments and destroy the gaps; and a missing tube map
+  fails loudly instead of emitting infill with no channels.
+* **Parallel-transported frame computation** for rendering near-vertical extrusions in preview,
+  avoiding the frame degeneracy that a fixed up-vector produces when a path is almost parallel
+  to it.

@@ -1,0 +1,50 @@
+Magma documentation — licensing
+===============================
+
+This repository contains two differently-licensed bodies of work.
+
+-------------------------------------------------------------------------------
+1. DEFENSIVE_PUBLICATION.md — CC0 1.0 Universal (public domain dedication)
+-------------------------------------------------------------------------------
+
+To the extent possible under law, Mark Gunlogson has waived all copyright and
+related or neighboring rights to DEFENSIVE_PUBLICATION.md, including the
+concepts, methods, algorithms, data structures and embodiments it describes.
+This work is published from the United States.
+
+Full text: https://creativecommons.org/publicdomain/zero/1.0/legalcode
+
+The dedication covers the disclosure and the techniques it describes. It does
+NOT cover the implementing source code, which lives in a separate repository and
+is licensed AGPL-3.0 (see section 3).
+
+-------------------------------------------------------------------------------
+2. All other documentation in this repository — MIT
+-------------------------------------------------------------------------------
+
+Copyright (c) 2026 Mark Gunlogson
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+-------------------------------------------------------------------------------
+3. The slicer source code — AGPL-3.0 (different repository)
+-------------------------------------------------------------------------------
+
+The Magma slicer itself is at https://github.com/MGunlogson/OrcaSlicer (branch
+magma-infill). It is a derivative work of OrcaSlicer and is licensed AGPL-3.0,
+inherited from upstream. It cannot be, and is not, CC0-dedicated.
